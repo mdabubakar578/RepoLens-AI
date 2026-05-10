@@ -6,7 +6,7 @@ Tier 1: API-based (sends chunked context to Grok). Always available.
 Tier 2: Local FAISS embeddings (optional, if sentence-transformers installed).
 """
 from __future__ import annotations
-import logging, os, re
+import logging, os, re, json, ast
 from dataclasses import dataclass, field
 import config
 
@@ -33,6 +33,7 @@ class CodeChunk:
     start_line: int = 0
     end_line: int = 0
     chunk_type: str = "code"  # code, docstring, config
+    importance_score: float = 1.0
 
 @dataclass
 class SearchResult:
@@ -49,7 +50,7 @@ class RAGService:
         self._chunks: list[CodeChunk] = []
         self._use_local = LOCAL_EMBEDDINGS_AVAILABLE and FAISS_AVAILABLE
 
-    def index_repository(self, file_contents: dict[str, str]) -> int:
+    def index_repository(self, analysis_id: str, file_contents: dict[str, str]) -> int:
         """Chunk and index all repository files. Returns chunk count."""
         self._chunks = []
         for path, content in file_contents.items():
@@ -67,7 +68,40 @@ class RAGService:
                 self._use_local = False
 
         logger.info("Indexed %d chunks from %d files", len(self._chunks), len(file_contents))
+        self.save_index(analysis_id)
         return len(self._chunks)
+
+    def save_index(self, analysis_id: str):
+        """Serialize index and chunks to disk."""
+        os.makedirs(".repolens/cache", exist_ok=True)
+        if self._index and self._use_local:
+            faiss.write_index(self._index, f".repolens/cache/{analysis_id}.index")
+        if self._chunks:
+            with open(f".repolens/cache/{analysis_id}_chunks.json", "w") as f:
+                json.dump([c.__dict__ for c in self._chunks], f)
+
+    def load_index(self, analysis_id: str) -> bool:
+        """Load index and chunks from disk."""
+        idx_path = f".repolens/cache/{analysis_id}.index"
+        chk_path = f".repolens/cache/{analysis_id}_chunks.json"
+        self._chunks = []
+        self._index = None
+        if os.path.exists(chk_path):
+            try:
+                with open(chk_path, "r") as f:
+                    self._chunks = [CodeChunk(**d) for d in json.load(f)]
+            except Exception as e:
+                logger.error(f"Failed to load chunks: {e}")
+                return False
+        if self._use_local and os.path.exists(idx_path):
+            try:
+                self._index = faiss.read_index(idx_path)
+                if not self._model:
+                    self._model = SentenceTransformer("all-MiniLM-L6-v2")
+            except Exception as e:
+                logger.error(f"Failed to load FAISS index: {e}")
+                self._index = None
+        return bool(self._chunks)
 
     def search(self, query: str, top_k: int | None = None) -> list[SearchResult]:
         """Search indexed chunks for relevant code context."""
@@ -112,35 +146,67 @@ class RAGService:
         # Default: sliding window chunking
         return self._chunk_sliding_window(path, lines)
 
-    def _chunk_python(self, path: str, content: str, lines: list[str]) -> list[CodeChunk]:
-        """Chunk Python files by function/class boundaries."""
-        chunks = []
-        current_start = 0
-        current_lines: list[str] = []
+    def _calculate_importance(self, path: str) -> float:
+        """Calculate architectural importance score based on file path."""
+        score = 1.0
+        lower_path = path.lower()
+        if lower_path.endswith(('main.py', 'app.py', 'index.js', 'server.js', 'main.go')):
+            score += 0.3
+        if any(p in lower_path for p in ['/services/', '/core/', '/domain/', '/usecases/']):
+            score += 0.2
+        if any(p in lower_path for p in ['test', 'spec', 'vendor', 'node_modules', '.min.']):
+            score -= 0.4
+        if lower_path.endswith(('.md', '.txt', '.json', '.yaml', '.yml', '.ini')):
+            score -= 0.2
+        return round(score, 2)
 
-        for i, line in enumerate(lines):
-            if re.match(r'^(class |def |async def )', line) and current_lines:
-                chunk_text = "\n".join(current_lines).strip()
+    def _chunk_python(self, path: str, content: str, lines: list[str]) -> list[CodeChunk]:
+        """Chunk Python files by AST boundaries, preserving module-level code."""
+        chunks = []
+        imp_score = self._calculate_importance(path)
+        covered = [False] * len(lines)
+        
+        try:
+            tree = ast.parse(content)
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    start = node.lineno - 1
+                    end = getattr(node, 'end_lineno', start + 1)
+                    
+                    # Mark lines as covered
+                    for i in range(start, min(end, len(lines))):
+                        covered[i] = True
+                        
+                    chunk_text = "\n".join(lines[start:end])
+                    if len(chunk_text.strip()) > 20:
+                        chunks.append(CodeChunk(
+                            content=chunk_text[:config.RAG_CHUNK_SIZE * 4],
+                            file_path=path, start_line=start + 1,
+                            end_line=end, chunk_type="code", importance_score=imp_score
+                        ))
+        except Exception:
+            pass
+        
+        # Sweep for uncovered lines (module-level code like imports and app init)
+        i = 0
+        while i < len(lines):
+            if not covered[i] and lines[i].strip():
+                start = i
+                while i < len(lines) and not covered[i]:
+                    i += 1
+                end = i
+                chunk_text = "\n".join(lines[start:end]).strip()
                 if len(chunk_text) > 20:
                     chunks.append(CodeChunk(
                         content=chunk_text[:config.RAG_CHUNK_SIZE * 4],
-                        file_path=path, start_line=current_start + 1,
-                        end_line=i, chunk_type="code"
+                        file_path=path, start_line=start + 1,
+                        end_line=end, chunk_type="module", importance_score=imp_score
                     ))
-                current_start = i
-                current_lines = [line]
             else:
-                current_lines.append(line)
-
-        if current_lines:
-            chunk_text = "\n".join(current_lines).strip()
-            if len(chunk_text) > 20:
-                chunks.append(CodeChunk(
-                    content=chunk_text[:config.RAG_CHUNK_SIZE * 4],
-                    file_path=path, start_line=current_start + 1,
-                    end_line=len(lines), chunk_type="code"
-                ))
-
+                i += 1
+        
+        if not chunks:
+            return self._chunk_sliding_window(path, lines)
         return chunks
 
     def _chunk_sliding_window(self, path: str, lines: list[str]) -> list[CodeChunk]:
@@ -150,6 +216,7 @@ class RAGService:
         overlap = max(1, config.RAG_CHUNK_OVERLAP // 40)
         i = 0
 
+        imp_score = self._calculate_importance(path)
         while i < len(lines):
             end = min(i + window_size, len(lines))
             chunk_text = "\n".join(lines[i:end]).strip()
@@ -157,7 +224,7 @@ class RAGService:
                 chunks.append(CodeChunk(
                     content=chunk_text[:config.RAG_CHUNK_SIZE * 4],
                     file_path=path, start_line=i + 1,
-                    end_line=end, chunk_type="code"
+                    end_line=end, chunk_type="code", importance_score=imp_score
                 ))
             i += window_size - overlap
 
@@ -182,10 +249,15 @@ class RAGService:
                     score += 0.5
 
             if score > 0:
-                scored.append(SearchResult(
-                    chunk=chunk, score=min(score, 1.0),
-                    relevance="high" if score > 0.5 else "medium"
-                ))
+                # Apply formula: TF-IDF pseudo-score + importance, clamped to 1.0 max
+                base_score = min(score, 1.0)
+                final_score = min(1.0, max(0.0, (base_score * 0.7) + (chunk.importance_score * 0.3)))
+                
+                if final_score >= 0.4:
+                    scored.append(SearchResult(
+                        chunk=chunk, score=final_score,
+                        relevance="high" if final_score > 0.7 else "medium"
+                    ))
 
         scored.sort(key=lambda r: -r.score)
         return scored[:top_k]
@@ -218,8 +290,14 @@ class RAGService:
         for score, idx in zip(scores[0], indices[0]):
             if idx < 0 or idx >= len(self._chunks):
                 continue
-            results.append(SearchResult(
-                chunk=self._chunks[idx], score=float(score),
-                relevance="high" if score > 0.7 else "medium" if score > 0.4 else "low"
-            ))
-        return results
+            chunk = self._chunks[idx]
+            # Convert inner product to pseudo-cosine (0-1), apply weighting, and clamp to 1.0 max
+            base_score = max(0.0, float(score))
+            final_score = min(1.0, max(0.0, (base_score * 0.7) + (chunk.importance_score * 0.3)))
+            
+            if final_score >= 0.4:
+                results.append(SearchResult(
+                    chunk=chunk, score=final_score,
+                    relevance="high" if final_score > 0.7 else "medium"
+                ))
+        return sorted(results, key=lambda r: -r.score)

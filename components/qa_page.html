@@ -96,7 +96,7 @@ async function submitQuestion(e) {
     if (data.error) {
       addMessage('error', data.error);
     } else {
-      addMessage('assistant', data.answer || 'No answer available.');
+      addMessage('assistant', data.answer || 'No answer available.', null, data.sources);
     }
   } catch (err) {
     document.getElementById(loadingId)?.remove();
@@ -107,7 +107,7 @@ async function submitQuestion(e) {
   submitBtn.textContent = 'Ask →';
 }
 
-function addMessage(type, content, id) {
+function addMessage(type, content, id, sources = []) {
   const container = document.getElementById('chat-messages');
   const div = document.createElement('div');
   if (id) div.id = id;
@@ -123,9 +123,29 @@ function addMessage(type, content, id) {
   } else if (type === 'error') {
     div.innerHTML = `<div class="alert alert--error">❌ ${escapeHtml(content)}</div>`;
   } else {
+    let sourceHtml = '';
+    if (sources && sources.length > 0) {
+      sourceHtml = `<details style="margin-top:var(--space-4);background:var(--bg-input);border-radius:var(--radius-md);padding:var(--space-2) var(--space-4)">
+        <summary style="cursor:pointer;color:var(--text-accent);font-size:0.9rem;font-weight:500;user-select:none;outline:none">
+          🔍 View retrieved evidence (${sources.length} sources)
+        </summary>
+        <div style="margin-top:var(--space-3);display:flex;flex-direction:column;gap:var(--space-2)">`;
+      sources.forEach(src => {
+        let badgeColor = src.relevance === 'high' ? 'var(--accent-blue)' : 'var(--text-muted)';
+        sourceHtml += `
+          <div style="font-size:0.8rem;display:flex;justify-content:space-between;align-items:center;padding-bottom:var(--space-2);border-bottom:1px solid var(--border)">
+            <code style="color:var(--text-primary);background:none;padding:0">${escapeHtml(src.file_path)} (L${src.start_line}-${src.end_line})</code>
+            <span style="color:${badgeColor};font-weight:600" title="Retrieval Confidence Score">cf: ${Math.round(src.score * 100)}%</span>
+          </div>`;
+      });
+      sourceHtml += `</div></details>`;
+    }
+
     div.innerHTML = `<div class="card" style="padding:var(--space-6)">
       <p style="margin:0 0 var(--space-2) 0;font-size:0.8rem;color:var(--text-muted)">🤖 RepoLens AI</p>
-      <div class="markdown-body">${simpleMarkdown(content)}</div></div>`;
+      <div class="markdown-body">${simpleMarkdown(content)}</div>
+      ${sourceHtml}
+      </div>`;
   }
 
   container.appendChild(div);

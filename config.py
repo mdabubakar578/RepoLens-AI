@@ -25,6 +25,10 @@ GROK_TIMEOUT_SECONDS = int(os.environ.get("GROK_TIMEOUT_SECONDS", "60"))
 GROK_MAX_RETRIES = int(os.environ.get("GROK_MAX_RETRIES", "3"))
 GROK_MAX_TOKENS = int(os.environ.get("GROK_MAX_TOKENS", "4096"))
 
+# ─── Google Gemini API ───────────────────────────────────────────────────────
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+
 # ─── GitHub API ──────────────────────────────────────────────────────────────
 GITHUB_API_TOKEN = os.environ.get("GITHUB_API_TOKEN", "")
 GITHUB_API_BASE_URL = os.environ.get("GITHUB_API_BASE_URL", "https://api.github.com")

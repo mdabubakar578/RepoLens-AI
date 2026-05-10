@@ -13,8 +13,9 @@ from services.github_service import (
 from services.commit_classifier import group_commits, serialize_groups_for_prompt
 from services.repo_analyzer import analyze_repository
 from services.architecture_analyzer import analyze_architecture
-from services.grok_client import grok
+from services.gemini_client import gemini
 from services.cache_service import get_cached, set_cached
+from services.rag_service import RAGService
 
 logger = logging.getLogger("repolens.task")
 
@@ -96,6 +97,11 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
 
                     github_langs = (repo_metadata or {}).get("languages", {})
                     repo_analysis = analyze_repository(file_tree, file_contents, commits, github_langs)
+                    
+                    # 3b. Index for Semantic Q&A
+                    rag = RAGService()
+                    rag.index_repository(str(analysis_id), file_contents)
+                    
                     tech_data = {
                         "technologies": [{"name": t.name, "category": t.category, "confidence": t.confidence} for t in repo_analysis.technologies[:15]],
                         "dependencies": repo_analysis.dependencies,
@@ -132,7 +138,7 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
         analysis = database.get_analysis_by_id(analysis_id)
         repo_name = analysis.get("repo_name", "Repository") if analysis else "Repository"
         
-        narratives = grok.generate_all(commit_data_text, repo_name)
+        narratives = gemini.generate_all(commit_data_text, repo_name)
         database.update_narratives(analysis_id, narratives)
         logger.info(f"Task {analysis_id}: Complete.")
 
@@ -154,7 +160,7 @@ def _select_key_files(file_tree: list[dict]) -> list[str]:
     for item in file_tree:
         if item["type"] == "blob" and item["path"] not in selected:
             basename = os.path.basename(item["path"]).lower()
-            if any(kw in basename for kw in ["config", "route", "model", "schema", "auth"]):
+            if any(kw in basename for kw in ["config", "route", "model", "schema", "auth", "controller", "service"]):
                 selected.append(item["path"])
-        if len(selected) >= 20: break
+        if len(selected) >= 30: break
     return selected
