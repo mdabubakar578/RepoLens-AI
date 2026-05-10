@@ -39,3 +39,4 @@ htmlcov/
 logs/
 *.log
 my-log.txt
+.env
