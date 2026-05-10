@@ -1,0 +1,41 @@
+# Environment and Secrets
+.env
+.env.local
+.env.*
+
+# Python Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+*.egg-info/
+.Python
+
+# Compiled Python files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Databases
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Caching and Temp Files
+cache/
+temp/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local configuration
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+my-log.txt

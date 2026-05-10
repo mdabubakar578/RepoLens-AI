@@ -1,0 +1,130 @@
+{% from 'macros.j2' import copy_button %}
+{#
+  output_panel.html — Tabbed narrative output display
+  Requires: `analysis` dict with narrative_* fields, `active_format` string
+#}
+
+<section class="output-panel" id="output-panel" aria-label="Generated narrative output">
+
+  {# ── Format Tabs ──────────────────────────────────────────────────────── #}
+  <div class="flex items-center justify-between mb-4" style="flex-wrap:wrap;gap:12px">
+    <h2 style="font-size:1rem;font-weight:600;color:var(--text-secondary);margin:0">
+      📖 Generated Narrative
+    </h2>
+    <div class="tabs" id="narrative-tabs" role="tablist">
+      {% for fmt_key, fmt_label in NARRATIVE_FORMATS %}
+        <button class="tab-btn {% if fmt_key == active_format %}active{% endif %}"
+                data-tab="{{ fmt_key }}"
+                id="tab-btn-{{ fmt_key }}"
+                role="tab"
+                aria-selected="{{ 'true' if fmt_key == active_format else 'false' }}"
+                aria-controls="panel-{{ fmt_key }}"
+                onclick="switchOutputTab('{{ fmt_key }}')">
+          {% if fmt_key == 'release' %}📋
+          {% elif fmt_key == 'standup' %}☀️
+          {% elif fmt_key == 'onboarding' %}🚀
+          {% elif fmt_key == 'portfolio' %}💼
+          {% endif %}
+          {{ fmt_label }}
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ── Panels ───────────────────────────────────────────────────────────── #}
+  {% for fmt_key, fmt_label in NARRATIVE_FORMATS %}
+    {% set narrative = analysis.get('narrative_' + fmt_key, '') %}
+    <div class="tab-panel {% if fmt_key == active_format %}active{% endif %} output-panel__content"
+         id="panel-{{ fmt_key }}"
+         role="tabpanel"
+         aria-labelledby="tab-btn-{{ fmt_key }}">
+
+      <div class="output-panel__toolbar flex items-center justify-between mb-3" style="flex-wrap:wrap;gap:8px">
+        <span class="text-xs text-muted">{{ fmt_label }}</span>
+        <div class="flex gap-2">
+          {{ copy_button('narrative-text-' + fmt_key, 'Copy') }}
+          {% if analysis.get('id') %}
+            <a href="/export/{{ analysis.id }}/{{ fmt_key }}/md"
+               class="btn btn--ghost btn--sm"
+               id="export-md-{{ fmt_key }}">
+              ⬇️ .md
+            </a>
+            <a href="/export/{{ analysis.id }}/{{ fmt_key }}/txt"
+               class="btn btn--ghost btn--sm"
+               id="export-txt-{{ fmt_key }}">
+              ⬇️ .txt
+            </a>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if narrative %}
+        <div class="output-panel__body card" style="padding:var(--space-6);max-height:600px;overflow-y:auto">
+          <div class="markdown-body" id="narrative-text-{{ fmt_key }}">
+            {{ narrative | safe }}
+          </div>
+        </div>
+      {% elif analysis.get('status') == 'error' %}
+        <div class="alert alert--error">
+          ❌ {{ analysis.get('error_message', 'Analysis failed. Please try again.') }}
+        </div>
+      {% else %}
+        <div class="output-panel__body card" style="padding:var(--space-6)">
+          <div class="flex items-center gap-3 text-muted">
+            <span class="spinner"></span>
+            <span>Generating {{ fmt_label }}…</span>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+
+  {# ── README Toggle ─────────────────────────────────────────────────────── #}
+  <div class="mt-4 flex gap-2" style="flex-wrap:wrap">
+    <button class="btn btn--ghost btn--sm"
+            id="toggle-readme-btn"
+            onclick="toggleReadmeFormat()">
+      📄 Toggle README Format
+    </button>
+    {% if analysis.get('slug') %}
+      <a href="/share/{{ analysis.slug }}"
+         class="btn btn--ghost btn--sm"
+         id="share-link-btn"
+         target="_blank">
+        🔗 Copy Share Link
+      </a>
+    {% endif %}
+  </div>
+</section>
+
+<script>
+function switchOutputTab(fmt) {
+  document.querySelectorAll('#narrative-tabs .tab-btn').forEach(b => {
+    b.classList.remove('active');
+    b.setAttribute('aria-selected', 'false');
+  });
+  document.querySelectorAll('.output-panel__content').forEach(p => p.classList.remove('active'));
+  const btn   = document.getElementById('tab-btn-' + fmt);
+  const panel = document.getElementById('panel-' + fmt);
+  if (btn)   { btn.classList.add('active'); btn.setAttribute('aria-selected', 'true'); }
+  if (panel) panel.classList.add('active');
+}
+
+function toggleReadmeFormat() {
+  const bodies = document.querySelectorAll('.markdown-body');
+  bodies.forEach(b => {
+    b.dataset.readme = b.dataset.readme === '1' ? '0' : '1';
+    if (b.dataset.readme === '1') {
+      b.style.fontFamily = 'var(--font-mono)';
+      b.style.whiteSpace = 'pre-wrap';
+      b.style.fontSize = '0.8rem';
+    } else {
+      b.style.fontFamily = '';
+      b.style.whiteSpace = '';
+      b.style.fontSize = '';
+    }
+  });
+  const btn = document.getElementById('toggle-readme-btn');
+  if (btn) btn.textContent = btn.textContent.includes('Raw') ? '📄 Toggle README Format' : '📄 Toggle Raw Text';
+}
+</script>

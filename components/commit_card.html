@@ -1,0 +1,99 @@
+{% from 'macros.j2' import commit_badge, format_tag, status_badge %}
+{#
+  commit_card.html — Reusable analysis summary card
+  Usage: {% include 'commit_card.html' %} with `analysis` variable in context
+#}
+<article class="card commit-card animate-fade-in-up" id="card-{{ analysis.id }}">
+  <div class="flex items-center justify-between mb-4" style="flex-wrap:wrap;gap:8px">
+    <div class="flex items-center gap-3" style="min-width:0">
+      <div class="commit-card__icon">📊</div>
+      <div style="min-width:0">
+        <h3 class="commit-card__name truncate" title="{{ analysis.repo_name }}">
+          {{ analysis.repo_name or 'Unknown Repo' }}
+        </h3>
+        <p class="text-xs text-muted font-mono truncate" title="{{ analysis.repo_url }}">
+          {{ analysis.repo_url or analysis.input_mode or '' }}
+        </p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2" style="flex-shrink:0">
+      {{ status_badge(analysis.status) }}
+    </div>
+  </div>
+
+  <div class="commit-card__stats flex gap-4 mb-4" style="flex-wrap:wrap">
+    <div class="stat-item">
+      <span class="stat-item__value" style="font-size:1.1rem">{{ analysis.commit_count }}</span>
+      <span class="stat-item__label">Commits</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-item__value" style="font-size:1.1rem">4</span>
+      <span class="stat-item__label">Formats</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-item__value" style="font-size:1.1rem">
+        {{ analysis.created_at[:10] if analysis.created_at else '—' }}
+      </span>
+      <span class="stat-item__label">Generated</span>
+    </div>
+  </div>
+
+  <div class="flex gap-2" style="flex-wrap:wrap;margin-bottom:var(--space-4)">
+    {{ format_tag('release') }}
+    {{ format_tag('standup') }}
+    {{ format_tag('onboarding') }}
+    {{ format_tag('portfolio') }}
+  </div>
+
+  <div class="flex gap-2" style="flex-wrap:wrap">
+    {% if analysis.status == 'done' %}
+      <a href="/result/{{ analysis.id }}"
+         class="btn btn--primary btn--sm"
+         id="view-btn-{{ analysis.id }}">
+        👁️ View Story
+      </a>
+      <a href="/share/{{ analysis.slug }}"
+         class="btn btn--ghost btn--sm"
+         id="share-btn-{{ analysis.id }}"
+         target="_blank">
+        🔗 Share
+      </a>
+    {% elif analysis.status == 'error' %}
+      <span class="text-sm text-muted">{{ analysis.error_message or 'Analysis failed' }}</span>
+      <a href="/" class="btn btn--ghost btn--sm">Try Again</a>
+    {% else %}
+      <span class="flex items-center gap-2 text-sm text-muted">
+        <span class="spinner" style="width:14px;height:14px"></span>
+        Processing…
+      </span>
+    {% endif %}
+  </div>
+</article>
+
+<style>
+.commit-card { position: relative; overflow: hidden; }
+.commit-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--gradient-brand);
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+}
+.commit-card:hover::before { opacity: 1; }
+.commit-card__icon {
+  width: 40px; height: 40px;
+  background: rgba(124,58,237,0.15);
+  border: 1px solid rgba(124,58,237,0.3);
+  border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.2rem; flex-shrink: 0;
+}
+.commit-card__name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+</style>

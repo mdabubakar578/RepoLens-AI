@@ -1,0 +1,77 @@
+{% extends "layout.html" %}
+
+{% block title %}History{% endblock %}
+{% block meta_description %}Browse saved RepoLens AI analyses, search repository history, and reopen generated stories.{% endblock %}
+
+{% block content %}
+<section class="page-content">
+  <div class="container">
+    <section class="card history-header animate-fade-in-up">
+      <div>
+        <p class="section-label">Saved analyses</p>
+        <h1>Analysis history</h1>
+        <p>
+          Revisit previous repository stories, compare outputs across projects, and reopen generated narratives.
+        </p>
+      </div>
+
+      <form method="get" action="/history" class="history-search">
+        <div class="search-wrapper">
+          <span class="search-icon">/</span>
+          <input
+            type="search"
+            name="q"
+            value="{{ search }}"
+            class="form-input search-input"
+            placeholder="Search by repo name or URL"
+          />
+        </div>
+        <button type="submit" class="btn btn--primary">Search</button>
+      </form>
+    </section>
+
+    <div class="flex items-center justify-between mt-6" style="flex-wrap:wrap;gap:12px">
+      <p class="text-sm text-muted">{{ total }} analyses found</p>
+      <a href="/" class="btn btn--ghost btn--sm">Start a new analysis</a>
+    </div>
+
+    {% if analyses %}
+    <section class="grid-3 mt-6 stagger-children">
+      {% for analysis in analyses %}
+        {% include "commit_card.html" %}
+      {% endfor %}
+    </section>
+    {% else %}
+    <section class="card mt-6">
+      <h2 style="font-size:1.2rem">No analyses yet</h2>
+      <p class="mt-4">
+        Run your first repository analysis from the home page and it will appear here.
+      </p>
+    </section>
+    {% endif %}
+
+    {% if total_pages > 1 %}
+    <nav class="pagination-bar mt-8" aria-label="Pagination">
+      <div class="flex gap-2 wrap">
+        {% if page > 1 %}
+        <a class="btn btn--secondary btn--sm" href="/history?q={{ search }}&page={{ page - 1 }}">Previous</a>
+        {% endif %}
+
+        {% for page_number in range(1, total_pages + 1) %}
+        <a
+          class="btn btn--sm {% if page_number == page %}btn--primary{% else %}btn--ghost{% endif %}"
+          href="/history?q={{ search }}&page={{ page_number }}"
+        >
+          {{ page_number }}
+        </a>
+        {% endfor %}
+
+        {% if page < total_pages %}
+        <a class="btn btn--secondary btn--sm" href="/history?q={{ search }}&page={{ page + 1 }}">Next</a>
+        {% endif %}
+      </div>
+    </nav>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

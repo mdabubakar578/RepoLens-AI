@@ -1,0 +1,93 @@
+{% extends "layout.html" %}
+
+{% block title %}About{% endblock %}
+{% block meta_description %}Learn how RepoLens AI converts fragmented commit history into structured narratives and contribution insights.{% endblock %}
+
+{% block content %}
+<section class="page-content">
+  <div class="container">
+    <section class="card about-hero animate-fade-in-up">
+      <p class="section-label">About RepoLens AI</p>
+      <h1>Readable project evolution from raw git history.</h1>
+      <p class="hero-lede">
+        RepoLens AI is a web-based developer productivity tool that transforms unstructured
+        commit history into human-readable narratives. The goal is simple: make repository
+        evolution easier to understand for release communication, onboarding, and day-to-day context sharing.
+      </p>
+    </section>
+
+    <section class="grid-3 mt-8 stagger-children">
+      <article class="card card--glass">
+        <p class="section-label">Input</p>
+        <h3>Repository URL, file upload, or pasted log</h3>
+        <p>
+          Teams can start from a GitHub repository link or bring their own commit export when network access is limited.
+        </p>
+      </article>
+      <article class="card card--glass">
+        <p class="section-label">Analysis</p>
+        <h3>AI-guided grouping and summarization</h3>
+        <p>
+          Commits are classified into features, fixes, refactors, docs, tests, and operational work before narrative generation.
+        </p>
+      </article>
+      <article class="card card--glass">
+        <p class="section-label">Output</p>
+        <h3>Stories, summaries, and contribution signals</h3>
+        <p>
+          The final result blends structured storytelling with contributor insights so the history is easier to scan and reuse.
+        </p>
+      </article>
+    </section>
+
+    <section class="card workflow-card mt-8">
+      <div class="workflow-card__header">
+        <div>
+          <p class="section-label">Workflow</p>
+          <h2>Designed to fit naturally into developer workflows.</h2>
+        </div>
+        <p class="workflow-card__text">
+          RepoLens AI reduces manual effort in documentation, reporting, and codebase understanding by making the change history legible.
+        </p>
+      </div>
+
+      <div class="workflow-steps">
+        <div class="workflow-step">
+          <span class="workflow-step__index">01</span>
+          <h3>Repository input</h3>
+          <p>Accept a Git repository link or plain-text commit history as the analysis source.</p>
+        </div>
+        <div class="workflow-step">
+          <span class="workflow-step__index">02</span>
+          <h3>Commit extraction</h3>
+          <p>Fetch commit metadata through the backend integration layer and normalize it into one schema.</p>
+        </div>
+        <div class="workflow-step">
+          <span class="workflow-step__index">03</span>
+          <h3>Structured rendering</h3>
+          <p>Produce reusable narratives and insights that teams can export, share, and revisit later.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid-2 mt-8">
+      <article class="card">
+        <p class="section-label">Architecture</p>
+        <h2 style="font-size:1.2rem">Simple deployment model</h2>
+        <p class="mt-4">
+          Each page is implemented as a single backend file, reusable UI lives in shared templates,
+          and one central configuration file handles database paths, API credentials, and application-wide settings.
+        </p>
+      </article>
+      <article class="card">
+        <p class="section-label">Why teams use it</p>
+        <h2 style="font-size:1.2rem">Less manual interpretation</h2>
+        <p class="mt-4">
+          Instead of reading hundreds of commit lines to reconstruct intent, developers get a coherent story of what changed,
+          who contributed, and where the project reached key milestones.
+        </p>
+      </article>
+    </section>
+  </div>
+</section>
+{% endblock %}

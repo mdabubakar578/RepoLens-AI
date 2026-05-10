@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="{% block meta_description %}{{ APP_TAGLINE }}{% endblock %}" />
+  <meta property="og:title" content="{% block og_title %}{{ APP_NAME }}{% endblock %}" />
+  <meta property="og:description" content="{{ APP_TAGLINE }}" />
+  <meta property="og:type" content="website" />
+  <title>{% block title %}{{ APP_NAME }}{% endblock %} — {{ APP_NAME }}</title>
+  <link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+  <nav class="navbar" role="navigation" aria-label="Main navigation">
+    <div class="navbar__inner">
+      <a href="/" class="navbar__brand" id="nav-brand">
+        <div class="navbar__brand-icon">🔍</div>
+        {{ APP_NAME }}
+      </a>
+      <ul class="navbar__nav">
+        <li><a href="/" id="nav-home"
+               class="{% if request.endpoint and request.endpoint.startswith('home') %}active{% endif %}">
+          Home
+        </a></li>
+        {% if ENABLE_HISTORY %}
+        <li><a href="/history" id="nav-history"
+               class="{% if request.endpoint and request.endpoint.startswith('history') %}active{% endif %}">
+          History
+        </a></li>
+        {% endif %}
+        <li><a href="/about" id="nav-about"
+               class="{% if request.endpoint and request.endpoint.startswith('about') %}active{% endif %}">
+          About
+        </a></li>
+        <li><a href="/" class="navbar__cta" id="nav-cta">+ New Analysis</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  {% with messages = get_flashed_messages(with_categories=True) %}
+    {% if messages %}
+      <div class="container" style="padding-top:1rem">
+        {% for category, message in messages %}
+          <div class="alert alert--{{ category if category in ['error','success','info','warning'] else 'info' }}" role="alert">
+            <span>
+              {% if category == 'error' %}❌
+              {% elif category == 'success' %}✅
+              {% elif category == 'warning' %}⚠️
+              {% else %}ℹ️{% endif %}
+            </span>
+            {{ message }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <main id="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <div>
+      Built with
+      <a href="https://x.ai" target="_blank" rel="noopener">Grok AI</a>
+      &nbsp;·&nbsp;
+      <a href="/about">How it works</a>
+      &nbsp;·&nbsp;
+      <span style="color:var(--text-muted)">{{ APP_NAME }} v{{ APP_VERSION }}</span>
+    </div>
+  </footer>
+
+  <script>
+    function copyToClipboard(targetId) {
+      const el = document.getElementById(targetId);
+      if (!el) return;
+      const text = el.innerText || el.value || '';
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('copy-btn-' + targetId);
+        if (btn) { const orig = btn.innerHTML; btn.innerHTML = '✅ Copied!'; setTimeout(() => { btn.innerHTML = orig; }, 2000); }
+      });
+    }
+    function switchTab(groupId, tabKey) {
+      const group = document.getElementById(groupId);
+      if (!group) return;
+      group.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      group.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const btn = group.querySelector(`[data-tab="${tabKey}"]`);
+      const panel = group.querySelector(`#panel-${tabKey}`);
+      if (btn) btn.classList.add('active');
+      if (panel) panel.classList.add('active');
+    }
+    function switchMode(mode) {
+      document.querySelectorAll('.mode-tab-btn').forEach(b => { b.classList.toggle('active', b.dataset.mode === mode); });
+      document.querySelectorAll('.mode-panel').forEach(p => { p.classList.toggle('hidden', p.dataset.mode !== mode); });
+      document.getElementById('input_mode').value = mode;
+    }
+    function toggleGroup(el) {
+      const body = el.parentElement.querySelector('.timeline-group__body');
+      const arrow = el.querySelector('.toggle-arrow');
+      if (body) { const isOpen = body.style.display !== 'none'; body.style.display = isOpen ? 'none' : 'block'; if (arrow) arrow.textContent = isOpen ? '▶' : '▼'; }
+    }
+  </script>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,265 @@
+{% extends "layout.html" %}
+{% from "macros.j2" import commit_badge, milestone_pill, stat_card %}
+
+{% block title %}{{ analysis.repo_name }}{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+function toggleGroup(header) {
+  const body = header.nextElementSibling;
+  body.classList.toggle('active');
+  const arrow = header.querySelector('.toggle-arrow');
+  arrow.textContent = body.classList.contains('active') ? '▲' : '▼';
+}
+
+function toggleNoise() {
+  const hide = document.getElementById('toggle-noise').checked;
+  const noisyItems = document.querySelectorAll('.commit-item[data-noisy="true"]');
+  noisyItems.forEach(item => {
+    item.style.display = hide ? 'none' : 'flex';
+  });
+}
+
+// Initial state
+document.addEventListener('DOMContentLoaded', () => {
+  toggleNoise();
+  
+  // Velocity Chart
+  const ctx = document.getElementById('velocityChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: {{ chart_data.labels|tojson }},
+      datasets: [
+        {
+          label: 'Features',
+          data: {{ chart_data.features|tojson }},
+          backgroundColor: '#7c3aed',
+          borderRadius: 4
+        },
+        {
+          label: 'Fixes',
+          data: {{ chart_data.fixes|tojson }},
+          backgroundColor: '#dc2626',
+          borderRadius: 4
+        },
+        {
+          label: 'Others',
+          data: {{ chart_data.others|tojson }},
+          backgroundColor: '#64748b',
+          borderRadius: 4
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: 'bottom', labels: { color: '#94a3b8' } }
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8' } },
+        y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
+      }
+    }
+  });
+});
+</script>
+{% endblock %}
+{% block meta_description %}Generated analysis for {{ analysis.repo_name }} with grouped activity, contributor insights, and narrative summaries.{% endblock %}
+
+{% block content %}
+<section class="page-content">
+  <div class="container container--wide">
+    <section class="card result-hero animate-fade-in-up">
+      <div class="result-hero__copy">
+        <p class="section-label">Analysis complete</p>
+        <h1>{{ analysis.repo_name }}</h1>
+        <p class="result-hero__subtitle">
+          {{ analysis.repo_url }}
+        </p>
+        <p>
+          RepoLens AI grouped {{ analysis.commit_count }} commits into readable workstreams and generated
+          multiple narrative views for documentation, release communication, and onboarding.
+        </p>
+      </div>
+      <div class="stats-bar">
+        {{ stat_card(insights.total_commits, "Commits") }}
+        {{ stat_card(insights.contributors_count, "Contributors") }}
+        {{ stat_card(insights.active_weeks, "Active Weeks") }}
+        {{ stat_card(analysis.status|title, "Status") }}
+      </div>
+    </section>
+
+    <section class="result-grid mt-8">
+      <div class="result-sidebar">
+        <article class="card mb-6">
+          <div class="flex items-center justify-between mb-4" style="flex-wrap:wrap;gap:12px">
+            <div>
+              <p class="section-label">Team Velocity</p>
+              <h2 style="font-size:1.2rem">Activity timeline</h2>
+            </div>
+          </div>
+          <div style="height: 200px">
+            <canvas id="velocityChart"></canvas>
+          </div>
+        </article>
+
+        <article class="card mb-6">
+          <div class="flex items-center justify-between mb-4" style="flex-wrap:wrap;gap:12px">
+            <div>
+              <p class="section-label">Project overview</p>
+              <h2 style="font-size:1.2rem">Contribution insights</h2>
+            </div>
+            {% if analysis.slug %}
+            <a href="/share/{{ analysis.slug }}?fmt={{ active_format }}" class="btn btn--ghost btn--sm" target="_blank">Open share view</a>
+            {% endif %}
+          </div>
+
+          <div class="insight-list">
+            <div class="insight-row">
+              <span>Coverage window</span>
+              <strong>
+                {% if insights.has_dated_commits %}
+                  {{ insights.date_from }} to {{ insights.date_to }}
+                {% else %}
+                  Undated commit history
+                {% endif %}
+              </strong>
+            </div>
+            <div class="insight-row">
+              <span>Top contributor</span>
+              <strong>
+                {% if insights.top_contributors %}
+                  {{ insights.top_contributors[0].name }} ({{ insights.top_contributors[0].commits }})
+                {% else %}
+                  No contributor data
+                {% endif %}
+              </strong>
+            </div>
+            <div class="insight-row">
+              <span>Milestones detected</span>
+              <strong>{{ insights.milestones|length }}</strong>
+            </div>
+          </div>
+
+          {% if insights.milestones %}
+          <div class="mt-6">
+            <p class="section-label">Milestones</p>
+            <div class="flex gap-2 wrap">
+              {% for tag in insights.milestones %}
+                {{ milestone_pill(tag) }}
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+
+          {% if insights.top_contributors %}
+          <div class="mt-6">
+            <p class="section-label">Top contributors</p>
+            <div class="rank-list">
+              {% for contributor in insights.top_contributors %}
+              <div class="rank-row">
+                <div>
+                  <strong>{{ contributor.name }}</strong>
+                </div>
+                <span class="badge badge--chore">{{ contributor.commits }} commits</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+
+          {% if insights.type_breakdown %}
+          <div class="mt-6">
+            <p class="section-label">Work mix</p>
+            <div class="rank-list">
+              {% for item in insights.type_breakdown %}
+              <div class="rank-row">
+                <div class="flex items-center gap-2">
+                  {{ commit_badge(item.type) }}
+                </div>
+                <span class="text-sm text-muted">{{ item.count }} ({{ item.share }}%)</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+        </article>
+
+        <article class="card">
+          <div class="flex items-center justify-between mb-4" style="flex-wrap:wrap;gap:12px">
+            <div>
+              <p class="section-label">Timeline</p>
+              <h2 style="font-size:1.2rem">Grouped commit history</h2>
+            </div>
+            <div class="flex items-center gap-4">
+              <div class="flex items-center gap-2">
+                <input type="checkbox" id="toggle-noise" onchange="toggleNoise()" checked>
+                <label for="toggle-noise" class="text-sm text-muted">Hide noise</label>
+              </div>
+              <span class="text-sm text-muted">{{ groups|length }} groups</span>
+            </div>
+          </div>
+
+          {% if groups %}
+          <div class="timeline">
+            {% for group in groups %}
+            <section class="timeline-group {% if group.is_milestone_week %}timeline-group--milestone{% endif %}">
+              <div class="timeline-group__header" onclick="toggleGroup(this)">
+                <div>
+                  <div class="timeline-group__title">{{ group.label }}</div>
+                  <div class="timeline-group__meta">
+                    <span>{{ group.commit_count }} commits</span>
+                    {% if group.date_from and group.date_to %}
+                    <span>{{ group.date_from }} to {{ group.date_to }}</span>
+                    {% endif %}
+                  </div>
+                </div>
+                <span class="toggle-arrow">{{ '▲' if loop.first else '▼' }}</span>
+              </div>
+              <div class="timeline-group__body {{ 'active' if loop.first }}">
+                {% if group.milestones %}
+                <div class="flex gap-2 wrap" style="padding: 0 var(--space-5) var(--space-3);">
+                  {% for milestone in group.milestones %}
+                    {{ milestone_pill(milestone.tag) }}
+                  {% endfor %}
+                </div>
+                {% endif %}
+
+                <div class="flex gap-2 wrap" style="padding: 0 var(--space-5) var(--space-3);">
+                  {% for type_key, count in group.type_counts.items() %}
+                  <span class="badge badge--{{ type_key }}">{{ type_info[type_key].label }}: {{ count }}</span>
+                  {% endfor %}
+                </div>
+
+                {% for commit in group.commits %}
+                <div class="commit-item" data-noisy="{{ 'true' if commit.is_noisy else 'false' }}">
+                  <div class="commit-item__hash">{{ commit.hash }}</div>
+                  <div class="commit-item__message">
+                    <div class="flex gap-2 wrap mb-4">
+                      {{ commit_badge(commit.commit_type) }}
+                    </div>
+                    <div>{{ commit.message }}</div>
+                  </div>
+                  <div class="commit-item__author">{{ commit.author }}</div>
+                </div>
+                {% endfor %}
+              </div>
+            </section>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="alert alert--warning">No grouped commits were stored for this analysis.</div>
+          {% endif %}
+        </article>
+      </div>
+
+      <div class="result-main">
+        {% include "output_panel.html" %}
+      </div>
+    </section>
+  </div>
+</section>
+{% endblock %}

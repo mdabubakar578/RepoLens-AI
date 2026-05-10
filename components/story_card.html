@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #111122;
+      --card: #16162a;
+      --border: rgba(124, 58, 237, 0.3);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #7c3aed;
+    }
+    body {
+      margin: 0;
+      padding: 20px;
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text);
+    }
+    .story-card {
+      width: 400px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      position: relative;
+      overflow: hidden;
+    }
+    .story-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 4px;
+      background: linear-gradient(90deg, var(--accent), #3b82f6);
+    }
+    .repo-name {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin: 0 0 4px 0;
+      color: var(--text);
+    }
+    .repo-url {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 16px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .stat-item {
+      background: rgba(255,255,255,0.03);
+      padding: 10px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .stat-value {
+      display: block;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .stat-label {
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-list {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      font-size: 0.7rem;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(124, 58, 237, 0.1);
+      color: #a78bfa;
+      border: 1px solid rgba(124, 58, 237, 0.2);
+    }
+    .footer {
+      margin-top: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .logo {
+      font-weight: 800;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="story-card">
+    <h1 class="repo-name">{{ analysis.repo_name }}</h1>
+    <div class="repo-url">{{ analysis.repo_url }}</div>
+    
+    <div class="stats-grid">
+      <div class="stat-item">
+        <span class="stat-value">{{ analysis.commit_count }}</span>
+        <span class="stat-label">Commits</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value">{{ insights.contributors_count }}</span>
+        <span class="stat-label">Authors</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value">{{ insights.active_weeks }}</span>
+        <span class="stat-label">Weeks</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value">{{ insights.milestones|length }}</span>
+        <span class="stat-label">Milestones</span>
+      </div>
+    </div>
+
+    <div class="badge-list">
+      {% for item in insights.type_breakdown[:4] %}
+        <span class="badge">{{ item.label }} ({{ item.share }}%)</span>
+      {% endfor %}
+    </div>
+
+    <div class="footer">
+      <div class="logo">🔍 RepoLens AI</div>
+      <div>{{ insights.date_to }}</div>
+    </div>
+  </div>
+</body>
+</html>

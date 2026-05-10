@@ -1,0 +1,152 @@
+{% extends "layout.html" %}
+
+{% block title %}Architecture — {{ analysis.repo_name }}{% endblock %}
+{% block meta_description %}Architecture analysis for {{ analysis.repo_name }} including technology detection, module mapping, and structural insights.{% endblock %}
+
+{% block content %}
+<section class="page-content">
+  <div class="container">
+
+    <!-- Header -->
+    <div class="card animate-fade-in-up" style="margin-bottom:var(--space-6)">
+      <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:12px">
+        <div>
+          <p class="section-label">Architecture Analysis</p>
+          <h1 style="font-size:1.8rem">{{ analysis.repo_name }}</h1>
+          <p class="text-sm text-muted mt-1">
+            <a href="/result/{{ analysis.id }}" class="text-accent">← Back to results</a>
+            &nbsp;·&nbsp;
+            {% if arch_data.get('patterns') %}
+            {{ arch_data.patterns[0].name }} Architecture
+            {% endif %}
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <a href="/qa/{{ analysis.id }}" class="btn btn--secondary btn--sm">💬 Ask Q&A</a>
+          <a href="/risk/{{ analysis.id }}" class="btn btn--secondary btn--sm">⚠️ Risk Report</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Architecture Pattern -->
+    {% if arch_data.get('patterns') %}
+    <div class="card animate-fade-in-up" style="margin-bottom:var(--space-6)">
+      <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">🏛️ Architecture Pattern</h2>
+      {% for pattern in arch_data.patterns[:3] %}
+      <div style="margin-bottom:var(--space-4);padding:var(--space-4);background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border)">
+        <div class="flex items-center justify-between" style="margin-bottom:var(--space-2)">
+          <strong style="color:var(--text-primary)">{{ pattern.name }}</strong>
+          <span class="badge badge--feature">{{ (pattern.confidence * 100)|int }}% match</span>
+        </div>
+        <p class="text-sm" style="margin:0">{{ pattern.description }}</p>
+        {% if pattern.evidence %}
+        <div class="flex gap-2 wrap mt-2">
+          {% for ev in pattern.evidence[:5] %}
+          <code class="text-xs" style="background:var(--bg-input);padding:2px 6px;border-radius:4px;color:var(--text-accent)">{{ ev }}</code>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="grid-2" style="gap:var(--space-6)">
+      <!-- Technologies -->
+      <div class="card animate-fade-in-up">
+        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">🛠️ Technologies Detected</h2>
+        {% if tech_data.get('technologies') %}
+          {% for tech in tech_data.technologies[:12] %}
+          <div class="flex items-center justify-between" style="padding:var(--space-2) 0;border-bottom:1px solid var(--border)">
+            <div class="flex items-center gap-2">
+              <span class="badge badge--{{ 'feature' if tech.category == 'frontend' else 'docs' if tech.category == 'backend' else 'test' if tech.category == 'database' else 'devops' if tech.category == 'devops' else 'chore' }}">
+                {{ tech.name }}
+              </span>
+              <span class="text-xs text-muted">{{ tech.category }}</span>
+            </div>
+            <span class="text-xs text-muted">{{ (tech.confidence * 100)|int }}%</span>
+          </div>
+          {% endfor %}
+        {% else %}
+          <p class="text-muted">No technology data available. Run analysis on a GitHub URL.</p>
+        {% endif %}
+      </div>
+
+      <!-- Modules -->
+      <div class="card animate-fade-in-up">
+        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">📦 Key Modules</h2>
+        {% if arch_data.get('modules') %}
+          {% for mod in arch_data.modules[:8] %}
+          <div style="padding:var(--space-2) 0;border-bottom:1px solid var(--border)">
+            <div class="flex items-center justify-between">
+              <strong style="font-size:0.9rem;color:var(--text-primary)">{{ mod.name }}</strong>
+              <span class="text-xs text-muted">{{ mod.file_count }} files</span>
+            </div>
+            <div class="flex gap-2 wrap mt-1">
+              {% for dir in mod.directories[:3] %}
+              <code class="text-xs" style="background:var(--bg-input);padding:1px 4px;border-radius:3px;color:var(--text-accent)">{{ dir }}/</code>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <p class="text-muted">No module data available.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Language Stats -->
+    {% if tech_data.get('language_stats') %}
+    <div class="card animate-fade-in-up mt-6">
+      <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">📊 Language Distribution</h2>
+      <div class="flex gap-4 wrap">
+        {% for lang, pct in tech_data.language_stats.items() %}
+        <div style="text-align:center;min-width:80px">
+          <div style="font-size:1.5rem;font-weight:800;color:var(--text-primary)">{{ pct }}%</div>
+          <div class="text-xs text-muted">{{ lang }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- API Endpoints -->
+    {% if arch_data.get('api_endpoints') %}
+    <div class="card animate-fade-in-up mt-6">
+      <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">🔌 API Endpoints ({{ arch_data.api_endpoints|length }})</h2>
+      <div style="max-height:300px;overflow-y:auto">
+        {% for endpoint in arch_data.api_endpoints[:20] %}
+        <div style="padding:var(--space-1) 0;font-family:var(--font-mono);font-size:0.85rem;color:var(--text-secondary)">
+          <span style="color:var(--accent-green);font-weight:600">{{ endpoint.split(' ')[0] }}</span>
+          {{ endpoint.split(' ', 1)[1] if ' ' in endpoint else endpoint }}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Architecture Insights -->
+    {% if arch_data.get('insights') %}
+    <div class="card animate-fade-in-up mt-6">
+      <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">💡 Insights</h2>
+      <ul style="list-style:none;padding:0">
+        {% for insight in arch_data.insights %}
+        <li style="padding:var(--space-2) 0;border-bottom:1px solid var(--border);color:var(--text-secondary);font-size:0.9rem">
+          {{ insight | safe }}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <!-- Directory Structure -->
+    {% if tech_data.get('directory_summary') %}
+    <div class="card animate-fade-in-up mt-6">
+      <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">📁 Directory Structure</h2>
+      <pre style="background:var(--bg-surface);padding:var(--space-4);border-radius:var(--radius-md);border:1px solid var(--border);font-family:var(--font-mono);font-size:0.85rem;color:var(--text-secondary);overflow-x:auto;margin:0">{{ tech_data.directory_summary }}</pre>
+    </div>
+    {% endif %}
+
+  </div>
+</section>
+{% endblock %}

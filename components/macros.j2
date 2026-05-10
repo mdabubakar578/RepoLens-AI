@@ -1,0 +1,66 @@
+{# macros.j2 — Reusable Jinja2 macros for badges, tags, and UI elements #}
+
+{# ── Commit Type Badge ──────────────────────────────────────────────────── #}
+{% macro commit_badge(commit_type) %}
+  {% set type_map = {
+    'feature':  ('✨', 'Feature',  'feature'),
+    'bugfix':   ('🐛', 'Bug Fix',  'bugfix'),
+    'hotfix':   ('🚨', 'Hotfix',   'hotfix'),
+    'refactor': ('♻️', 'Refactor', 'refactor'),
+    'docs':     ('📝', 'Docs',     'docs'),
+    'test':     ('🧪', 'Tests',    'test'),
+    'devops':   ('⚙️', 'DevOps',   'devops'),
+    'chore':    ('🔧', 'Chore',    'chore'),
+  } %}
+  {% set info = type_map.get(commit_type, ('•', commit_type|title, 'chore')) %}
+  <span class="badge badge--{{ info[2] }}">{{ info[0] }} {{ info[1] }}</span>
+{% endmacro %}
+
+{# ── Narrative Format Tag ───────────────────────────────────────────────── #}
+{% macro format_tag(fmt) %}
+  {% set fmt_map = {
+    'release':    ('📋', 'Release Notes'),
+    'standup':    ('☀️', 'Standup'),
+    'onboarding': ('🚀', 'Onboarding'),
+    'portfolio':  ('💼', 'Portfolio'),
+  } %}
+  {% set info = fmt_map.get(fmt, ('📄', fmt|title)) %}
+  <span class="badge badge--feature">{{ info[0] }} {{ info[1] }}</span>
+{% endmacro %}
+
+{# ── Stat Card ──────────────────────────────────────────────────────────── #}
+{% macro stat_card(value, label, icon='') %}
+<div class="stat-item">
+  <span class="stat-item__value">{{ icon }} {{ value }}</span>
+  <span class="stat-item__label">{{ label }}</span>
+</div>
+{% endmacro %}
+
+{# ── Milestone Indicator ────────────────────────────────────────────────── #}
+{% macro milestone_pill(tag) %}
+  <span class="badge badge--feature" style="background:rgba(124,58,237,0.25);border-color:rgba(124,58,237,0.6)">
+    🏷️ {{ tag }}
+  </span>
+{% endmacro %}
+
+{# ── Copy Button ────────────────────────────────────────────────────────── #}
+{% macro copy_button(target_id, label='Copy') %}
+  <button class="btn btn--ghost btn--sm"
+          onclick="copyToClipboard('{{ target_id }}')"
+          id="copy-btn-{{ target_id }}">
+    📋 {{ label }}
+  </button>
+{% endmacro %}
+
+{# ── Status Badge ───────────────────────────────────────────────────────── #}
+{% macro status_badge(status) %}
+  {% if status == 'done' %}
+    <span class="badge badge--test">✅ Done</span>
+  {% elif status == 'pending' %}
+    <span class="badge badge--devops">⏳ Processing</span>
+  {% elif status == 'error' %}
+    <span class="badge badge--bugfix">❌ Error</span>
+  {% else %}
+    <span class="badge badge--chore">{{ status }}</span>
+  {% endif %}
+{% endmacro %}

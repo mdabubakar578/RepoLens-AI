@@ -1,0 +1,69 @@
+{% extends "layout.html" %}
+
+{% block title %}Shared Story - {{ analysis.repo_name }}{% endblock %}
+{% block meta_description %}Public RepoLens AI view for {{ analysis.repo_name }} with reusable narrative output and contribution insights.{% endblock %}
+
+{% block content %}
+<section class="page-content">
+  <div class="container container--wide">
+    <section class="card result-hero animate-fade-in-up">
+      <div class="result-hero__copy">
+        <p class="section-label">Shared analysis</p>
+        <h1>{{ analysis.repo_name }}</h1>
+        <p class="result-hero__subtitle">{{ analysis.repo_url }}</p>
+        <p>
+          This public view focuses on the generated story and the high-level contribution picture behind it.
+        </p>
+      </div>
+      <div class="stats-bar">
+        <div class="stat-item">
+          <span class="stat-item__value">{{ insights.total_commits }}</span>
+          <span class="stat-item__label">Commits</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-item__value">{{ insights.contributors_count }}</span>
+          <span class="stat-item__label">Contributors</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-item__value">{{ insights.active_weeks }}</span>
+          <span class="stat-item__label">Active Weeks</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="result-grid mt-8">
+      <div class="result-sidebar">
+        <article class="card">
+          <p class="section-label">Share link</p>
+          <h2 style="font-size:1.2rem">Reusable public URL</h2>
+          <p class="mt-4">
+            Share this analysis with teammates when they need the project story without opening the raw repository history.
+          </p>
+          <input class="form-input mt-6" id="share-url" value="{{ share_url }}" readonly />
+          <button class="btn btn--secondary btn--sm mt-4" id="copy-btn-share-url" onclick="copyToClipboard('share-url')">
+            Copy link
+          </button>
+
+          {% if insights.top_contributors %}
+          <div class="mt-6">
+            <p class="section-label">Top contributors</p>
+            <div class="rank-list">
+              {% for contributor in insights.top_contributors %}
+              <div class="rank-row">
+                <strong>{{ contributor.name }}</strong>
+                <span class="badge badge--chore">{{ contributor.commits }} commits</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+        </article>
+      </div>
+
+      <div class="result-main">
+        {% include "output_panel.html" %}
+      </div>
+    </section>
+  </div>
+</section>
+{% endblock %}

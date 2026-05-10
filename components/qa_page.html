@@ -1,0 +1,157 @@
+{% extends "layout.html" %}
+
+{% block title %}Q&A — {{ analysis.repo_name }}{% endblock %}
+{% block meta_description %}Ask questions about {{ analysis.repo_name }} and get AI-powered answers with code context.{% endblock %}
+
+{% block content %}
+<section class="page-content">
+  <div class="container container--narrow">
+
+    <div class="card animate-fade-in-up" style="margin-bottom:var(--space-6)">
+      <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:12px">
+        <div>
+          <p class="section-label">Repository Q&A</p>
+          <h1 style="font-size:1.8rem">Ask about {{ analysis.repo_name }}</h1>
+          <p class="text-sm text-muted mt-1">
+            <a href="/result/{{ analysis.id }}" class="text-accent">← Back to results</a>
+            &nbsp;·&nbsp; AI-powered code understanding
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Suggested Questions -->
+    <div class="card animate-fade-in-up" style="margin-bottom:var(--space-6)">
+      <h2 style="font-size:1rem;margin-bottom:var(--space-3);color:var(--text-secondary)">💡 Try asking...</h2>
+      <div class="flex gap-2 wrap">
+        <button class="btn btn--ghost btn--sm suggested-q" onclick="askSuggested(this)">Where is authentication implemented?</button>
+        <button class="btn btn--ghost btn--sm suggested-q" onclick="askSuggested(this)">How does the database connection work?</button>
+        <button class="btn btn--ghost btn--sm suggested-q" onclick="askSuggested(this)">Which files manage routing?</button>
+        <button class="btn btn--ghost btn--sm suggested-q" onclick="askSuggested(this)">Explain the project architecture</button>
+        <button class="btn btn--ghost btn--sm suggested-q" onclick="askSuggested(this)">Where are API endpoints defined?</button>
+        <button class="btn btn--ghost btn--sm suggested-q" onclick="askSuggested(this)">What technologies does this project use?</button>
+      </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div id="chat-container">
+      <div id="chat-messages" style="margin-bottom:var(--space-4)">
+        <!-- Messages will be inserted here -->
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="card" style="position:sticky;bottom:var(--space-4);z-index:10">
+      <form id="qa-form" onsubmit="submitQuestion(event)" class="flex gap-3">
+        <input type="text" id="qa-input" class="form-input" placeholder="Ask a question about this repository..."
+               style="flex:1" autocomplete="off" />
+        <button type="submit" class="btn btn--primary" id="qa-submit">
+          Ask →
+        </button>
+      </form>
+    </div>
+
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const ANALYSIS_ID = {{ analysis.id }};
+
+function askSuggested(btn) {
+  document.getElementById('qa-input').value = btn.textContent.trim();
+  document.getElementById('qa-form').dispatchEvent(new Event('submit'));
+}
+
+async function submitQuestion(e) {
+  e.preventDefault();
+  const input = document.getElementById('qa-input');
+  const question = input.value.trim();
+  if (!question) return;
+
+  const submitBtn = document.getElementById('qa-submit');
+  submitBtn.disabled = true;
+  submitBtn.textContent = '⏳';
+
+  // Add user message
+  addMessage('user', question);
+  input.value = '';
+
+  // Add loading indicator
+  const loadingId = 'loading-' + Date.now();
+  addMessage('loading', 'Analyzing repository and generating answer...', loadingId);
+
+  try {
+    const resp = await fetch(`/qa/${ANALYSIS_ID}/ask`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question})
+    });
+    const data = await resp.json();
+
+    // Remove loading
+    document.getElementById(loadingId)?.remove();
+
+    if (data.error) {
+      addMessage('error', data.error);
+    } else {
+      addMessage('assistant', data.answer || 'No answer available.');
+    }
+  } catch (err) {
+    document.getElementById(loadingId)?.remove();
+    addMessage('error', 'Failed to get answer. Please try again.');
+  }
+
+  submitBtn.disabled = false;
+  submitBtn.textContent = 'Ask →';
+}
+
+function addMessage(type, content, id) {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  if (id) div.id = id;
+  div.className = 'chat-message chat-message--' + type;
+  div.style.cssText = 'margin-bottom:var(--space-4);animation:fadeInUp 0.3s ease';
+
+  if (type === 'user') {
+    div.innerHTML = `<div class="card" style="background:rgba(124,58,237,0.1);border-color:rgba(124,58,237,0.3);padding:var(--space-4)">
+      <p style="margin:0;color:var(--text-primary);font-weight:500">🧑 ${escapeHtml(content)}</p></div>`;
+  } else if (type === 'loading') {
+    div.innerHTML = `<div class="card" style="padding:var(--space-4)">
+      <div class="flex items-center gap-3"><span class="spinner"></span><span class="text-muted">${content}</span></div></div>`;
+  } else if (type === 'error') {
+    div.innerHTML = `<div class="alert alert--error">❌ ${escapeHtml(content)}</div>`;
+  } else {
+    div.innerHTML = `<div class="card" style="padding:var(--space-6)">
+      <p style="margin:0 0 var(--space-2) 0;font-size:0.8rem;color:var(--text-muted)">🤖 RepoLens AI</p>
+      <div class="markdown-body">${simpleMarkdown(content)}</div></div>`;
+  }
+
+  container.appendChild(div);
+  div.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+function simpleMarkdown(text) {
+  let html = escapeHtml(text);
+  html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = html.replace(/\n/g, '<br>');
+  return '<p>' + html + '</p>';
+}
+</script>
+{% endblock %}

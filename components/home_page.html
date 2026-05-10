@@ -1,0 +1,204 @@
+{% extends "layout.html" %}
+
+{% block title %}Analyze Repository History{% endblock %}
+{% block meta_description %}RepoLens AI turns fragmented git history into release notes, project stories, and onboarding-ready summaries.{% endblock %}
+
+{% block content %}
+<section class="page-content">
+  <div class="container">
+    <section class="hero-shell animate-fade-in-up">
+      <div class="hero-copy">
+        <span class="hero-kicker">Developer productivity for messy commit history</span>
+        <h1>Turn commit history into a readable product story.</h1>
+        <p class="hero-lede">
+          RepoLens AI analyzes repository activity, groups work into features,
+          fixes, and refactors, then produces structured narratives that help
+          teams onboard faster, write release notes, and understand how a codebase evolved.
+        </p>
+        <div class="stats-bar">
+          <div class="stat-item">
+            <span class="stat-item__value">4</span>
+            <span class="stat-item__label">Narrative Views</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-item__value">3</span>
+            <span class="stat-item__label">Input Modes</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-item__value">500</span>
+            <span class="stat-item__label">Commit Limit</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card card--glass hero-form">
+        <div class="hero-form__header">
+          <div>
+            <p class="hero-form__eyebrow">New analysis</p>
+            <h2>Analyze a repository</h2>
+          </div>
+          <p class="text-sm">
+            Use a GitHub repository URL, upload a saved git log, or paste raw history.
+          </p>
+        </div>
+
+        <form method="post" action="/analyze" enctype="multipart/form-data" onsubmit="showLoadingState()">
+          <input type="hidden" name="input_mode" id="input_mode" value="url" />
+
+          <div class="mode-tabs mb-6">
+            <button type="button" class="mode-tab-btn active" data-mode="url" onclick="switchMode('url')">Repository URL</button>
+            <button type="button" class="mode-tab-btn" data-mode="file" onclick="switchMode('file')">Upload Log</button>
+            <button type="button" class="mode-tab-btn" data-mode="paste" onclick="switchMode('paste')">Paste Commits</button>
+          </div>
+
+          <div class="mode-panel" data-mode="url">
+            <div class="form-group">
+              <label class="form-label" for="repo_url">Repository link</label>
+              <input
+                class="form-input"
+                id="repo_url"
+                name="repo_url"
+                type="url"
+                placeholder="https://github.com/owner/repo"
+              />
+              <p class="text-sm text-muted">
+                GitHub URLs use the GitHub API. Other approved hosts can fall back to git clone when available.
+              </p>
+            </div>
+          </div>
+
+          <div class="mode-panel hidden" data-mode="file">
+            <div class="form-group">
+              <label class="form-label" for="git_log_file">Git log text file</label>
+              <input class="form-input" id="git_log_file" name="git_log_file" type="file" accept=".txt" />
+              <div class="text-sm text-muted mt-2">
+                <p>Upload a <code>.txt</code> file containing your git history.</p>
+                <p class="mt-1">Standard <code>git log</code> or <code>git log --oneline</code> works, but for best results use:</p>
+                <code class="block-code">git log --pretty=format:"%H|%s|%an|%ae|%ad|%D" --date=iso > my-log.txt</code>
+              </div>
+            </div>
+          </div>
+
+          <div class="mode-panel hidden" data-mode="paste">
+            <div class="form-group">
+              <label class="form-label" for="raw_commits">Raw commit history</label>
+              <textarea
+                class="form-textarea"
+                id="raw_commits"
+                name="raw_commits"
+                rows="9"
+                placeholder="Paste git log output here"
+              ></textarea>
+              <div class="text-sm text-muted mt-2">
+                <p>Paste the output of <code>git log --oneline</code> or the recommended command above.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid-2 mt-6">
+            <div class="form-group">
+              <label class="form-label" for="format_pref">Default output view</label>
+              <select class="form-select" id="format_pref" name="format_pref">
+                {% for fmt_key, fmt_label in NARRATIVE_FORMATS %}
+                <option value="{{ fmt_key }}">{{ fmt_label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">What you get</label>
+              <div class="hero-form__summary">
+                Release notes, standups, onboarding stories, and portfolio-ready summaries from one analysis run.
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn--primary btn--lg btn--full mt-6" id="generate-btn">
+            Generate Story
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <section class="grid-3 mt-8 stagger-children">
+      <article class="card card--glass">
+        <p class="section-label">Workflow</p>
+        <h3>From repo URL to narrative output</h3>
+        <p>
+          Submit a repository, extract commits, classify work into meaningful buckets,
+          and render polished summaries that fit directly into team workflows.
+        </p>
+      </article>
+      <article class="card card--glass">
+        <p class="section-label">Signals</p>
+        <h3>Features, bug fixes, refactors, and milestones</h3>
+        <p>
+          Grouping logic highlights how the project changed over time, which contributors
+          shaped it, and when notable releases landed.
+        </p>
+      </article>
+      <article class="card card--glass">
+        <p class="section-label">Impact</p>
+        <h3>Less manual reporting, faster onboarding</h3>
+        <p>
+          Teams spend less time decoding raw history and more time understanding product evolution.
+        </p>
+      </article>
+    </section>
+
+    <section class="card workflow-card mt-8 animate-fade-in">
+      <div class="workflow-card__header">
+        <div>
+          <p class="section-label">How it works</p>
+          <h2>Built for the moments when commit history gets noisy.</h2>
+        </div>
+        <p class="workflow-card__text">
+          The app keeps development simple: page-level routes contain the page logic,
+          shared templates handle repeated UI, and one central config file controls setup.
+        </p>
+      </div>
+
+      <div class="workflow-steps">
+        <div class="workflow-step">
+          <span class="workflow-step__index">01</span>
+          <h3>Ingest</h3>
+          <p>Load commit history from a repository URL, uploaded file, or pasted log.</p>
+        </div>
+        <div class="workflow-step">
+          <span class="workflow-step__index">02</span>
+          <h3>Analyze</h3>
+          <p>Classify commit intent, detect milestones, and summarize contributor activity.</p>
+        </div>
+        <div class="workflow-step">
+          <span class="workflow-step__index">03</span>
+          <h3>Narrate</h3>
+          <p>Generate structured outputs that are easier for humans to scan and reuse.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="loading-overlay hidden" id="loading-overlay">
+    <span class="spinner loading-overlay__spinner"></span>
+    <div class="loading-overlay__text">
+      Extracting commit history and generating narratives.<br />
+      This can take a few seconds for larger repositories.
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showLoadingState() {
+  const overlay = document.getElementById('loading-overlay');
+  const button = document.getElementById('generate-btn');
+  if (overlay) {
+    overlay.classList.remove('hidden');
+  }
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Generating...';
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,93 @@
+{% extends "layout.html" %}
+
+{% block title %}Analyzing... — {{ APP_NAME }}{% endblock %}
+
+{% block content %}
+<section class="page-content" style="min-height: 70vh; display: flex; align-items: center; justify-content: center;">
+  <div class="container container--narrow text-center">
+    
+    <div class="card animate-fade-in-up" style="padding:var(--space-8) var(--space-6); max-width: 500px; margin: 0 auto;">
+      
+      <div style="margin-bottom:var(--space-6)">
+        <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin: 0 auto;"></div>
+      </div>
+      
+      <h1 style="font-size: 1.5rem; margin-bottom: var(--space-2)">Analyzing Repository</h1>
+      <p class="text-muted" id="status-text">Fetching commits and parsing architecture. This usually takes 10-30 seconds depending on repository size...</p>
+      
+      <div style="margin-top:var(--space-6); background:var(--bg-input); height:6px; border-radius:3px; overflow:hidden; position:relative;">
+        <div id="progress-bar" style="position:absolute; top:0; left:0; height:100%; width:30%; background:var(--accent-purple); border-radius:3px; transition: width 0.5s ease;"></div>
+      </div>
+      
+      <div class="mt-4">
+        <p class="text-xs" style="color:var(--text-muted); font-family:var(--font-mono)" id="poll-info">
+          Analysis ID: {{ analysis.id }}
+        </p>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const analysisId = {{ analysis.id }};
+  const targetFmt = "{{ fmt }}";
+  let pollCount = 0;
+  const progressBar = document.getElementById('progress-bar');
+  const statusText = document.getElementById('status-text');
+
+  const messages = [
+    "Fetching repository metadata and branches...",
+    "Downloading file tree and parsing commits...",
+    "Extracting source code for architecture analysis...",
+    "Detecting frameworks and dependencies...",
+    "Generating AI narratives with Grok...",
+    "Finalizing structural insights and RAG embeddings...",
+    "Almost done, wrapping things up..."
+  ];
+
+  function updateProgress() {
+    pollCount++;
+    
+    // Fake progress bar that slows down
+    const progress = Math.min(30 + (pollCount * 5), 95);
+    progressBar.style.width = `${progress}%`;
+    
+    // Cycle messages
+    if (pollCount < messages.length * 2) {
+      statusText.textContent = messages[Math.floor(pollCount / 2)];
+    }
+  }
+
+  async function checkStatus() {
+    try {
+      const res = await fetch(`/status/${analysisId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'done') {
+          progressBar.style.width = '100%';
+          statusText.textContent = "Analysis complete! Redirecting...";
+          setTimeout(() => {
+            window.location.href = `/result/${analysisId}?fmt=${targetFmt}`;
+          }, 500);
+          return; // Stop polling
+        } else if (data.status === 'error') {
+          window.location.href = `/`; // Redirect back home, the flash message will show
+          return;
+        }
+      }
+    } catch (e) {
+      console.error("Polling error:", e);
+    }
+    
+    updateProgress();
+    setTimeout(checkStatus, 2500);
+  }
+
+  // Start polling
+  setTimeout(checkStatus, 2000);
+</script>
+{% endblock %}
