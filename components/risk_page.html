@@ -1,0 +1,178 @@
+{% extends "layout.html" %}
+
+{% block title %}Risk Analysis — {{ analysis.repo_name }}{% endblock %}
+{% block meta_description %}Repository risk dashboard for {{ analysis.repo_name }} including hotspots, technical debt, and architectural risks.{% endblock %}
+
+{% block content %}
+<section class="page-content">
+  <div class="container">
+
+    <!-- Header -->
+    <div class="card animate-fade-in-up" style="margin-bottom:var(--space-6)">
+      <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:12px">
+        <div>
+          <p class="section-label">Repository Risk Dashboard</p>
+          <h1 style="font-size:1.8rem">{{ analysis.repo_name }}</h1>
+          <p class="text-sm text-muted mt-1">
+            <a href="/architecture/{{ analysis.id }}" class="text-accent">← Back to Architecture</a>
+            &nbsp;·&nbsp;
+            Maintainability & Technical Debt
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Complexity Metrics -->
+    {% if arch_data and arch_data.get('complexity_metrics') %}
+    <div class="card animate-fade-in-up" style="margin-bottom:var(--space-6)">
+      <div class="grid-3" style="gap:var(--space-4)">
+        <div class="text-center" style="padding:var(--space-4);background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border)">
+          <p class="text-sm text-muted">Complexity Score</p>
+          <p style="font-size:2.5rem;font-weight:bold;color:var(--text-primary);margin:var(--space-2) 0">
+            {{ arch_data.complexity_metrics.complexity_score }}<span style="font-size:1rem;color:var(--text-muted)">/100</span>
+          </p>
+          <span class="badge badge--{{ 'error' if arch_data.complexity_metrics.complexity_score > 60 else 'warning' if arch_data.complexity_metrics.complexity_score > 40 else 'info' }}">
+            {{ arch_data.complexity_metrics.complexity_label }}
+          </span>
+        </div>
+        <div class="text-center flex items-center justify-center" style="padding:var(--space-4);background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border)">
+          <div>
+            <p class="text-sm text-muted">File Count</p>
+            <p style="font-size:2rem;font-weight:bold;color:var(--text-primary)">
+              {{ arch_data.complexity_metrics.file_count }}
+            </p>
+          </div>
+        </div>
+        <div class="text-center flex items-center justify-center" style="padding:var(--space-4);background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border)">
+          <div>
+            <p class="text-sm text-muted">Max Depth</p>
+            <p style="font-size:2rem;font-weight:bold;color:var(--text-primary)">
+              {{ arch_data.complexity_metrics.max_directory_depth }}
+            </p>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Complexity Breakdown -->
+      {% if arch_data.complexity_metrics.get('breakdown') %}
+      <div class="mt-4 flex gap-4 wrap text-xs text-muted justify-center">
+        <span>Volume: <strong>{{ arch_data.complexity_metrics.breakdown.volume }} pts</strong></span>
+        <span>Dependencies: <strong>{{ arch_data.complexity_metrics.breakdown.dependencies }} pts</strong></span>
+        <span>Churn/Hotspots: <strong>{{ arch_data.complexity_metrics.breakdown.churn_hotspots }} pts</strong></span>
+        <span>Tech Debt: <strong>{{ arch_data.complexity_metrics.breakdown.tech_debt }} pts</strong></span>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="grid-2" style="gap:var(--space-6)">
+      <!-- Risk Warnings -->
+      <div class="card animate-fade-in-up">
+        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">🚨 Top Risk Observations</h2>
+        {% if tech_data.get('risk_items') %}
+          {% for risk in tech_data.risk_items %}
+          <div style="margin-bottom:var(--space-4);padding:var(--space-3);background:var(--bg-surface);border-left:4px solid {% if risk.severity == 'CRITICAL' %}var(--accent-red){% elif risk.severity == 'HIGH' %}var(--accent-orange){% elif risk.severity == 'MEDIUM' %}var(--accent-yellow){% else %}var(--accent-blue){% endif %};border-radius:0 var(--radius-md) var(--radius-md) 0">
+            <div class="flex items-center justify-between" style="margin-bottom:var(--space-1)">
+              <strong style="color:var(--text-primary);font-size:0.95rem">{{ risk.title }}</strong>
+              <div class="flex gap-2">
+                {% if risk.get('confidence') %}
+                <span class="badge badge--info" title="Confidence Score">cf: {{ (risk.confidence * 100)|int }}%</span>
+                {% endif %}
+                <span class="badge badge--{{ 'error' if risk.severity in ['CRITICAL', 'HIGH'] else 'warning' if risk.severity == 'MEDIUM' else 'info' }}">{{ risk.severity }}</span>
+              </div>
+            </div>
+            <p class="text-sm text-muted" style="margin:0">{{ risk.description }}</p>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="alert alert--success">No significant architectural risks detected.</div>
+        {% endif %}
+      </div>
+
+      <!-- Hotspots -->
+      <div class="card animate-fade-in-up">
+        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">🔥 Churn Hotspots</h2>
+        {% if tech_data.get('hotspots') %}
+          <div style="max-height:400px;overflow-y:auto;padding-right:var(--space-2)">
+            {% for spot in tech_data.hotspots %}
+            <div style="margin-bottom:var(--space-3);padding-bottom:var(--space-3);border-bottom:1px solid var(--border)">
+              <div class="flex items-center justify-between" style="margin-bottom:var(--space-1)">
+                <code class="text-sm" style="color:var(--text-accent);background:var(--bg-input);padding:2px 6px;border-radius:4px;word-break:break-all">{{ spot.file }}</code>
+                <div class="flex gap-2">
+                  {% if spot.get('confidence') %}
+                  <span class="badge badge--info" title="Confidence Score">cf: {{ (spot.confidence * 100)|int }}%</span>
+                  {% endif %}
+                  <span class="badge badge--{{ 'error' if spot.risk in ['CRITICAL', 'HIGH'] else 'warning' if spot.risk == 'MEDIUM' else 'info' }}">{{ spot.risk }}</span>
+                </div>
+              </div>
+              <div class="flex justify-between text-xs text-muted">
+                <span>{{ spot.mentions }} commits</span>
+                <span>{{ spot.authors }} unique author(s)</span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-muted text-sm">No significant code churn hotspots detected in recent commit history.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Commit Quality & Tech Debt -->
+    <div class="grid-2 mt-6" style="gap:var(--space-6)">
+      <!-- Technical Debt (TODOs) -->
+      <div class="card animate-fade-in-up">
+        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)"> debt Technical Debt Markers</h2>
+        {% if tech_data.get('todos') %}
+          <p class="text-sm text-muted mb-4">Showing {{ tech_data.todos|length }} unresolved items in code.</p>
+          <div style="max-height:300px;overflow-y:auto;padding-right:var(--space-2)">
+            {% for todo in tech_data.todos[:15] %}
+            <div style="margin-bottom:var(--space-3)">
+              <div class="text-xs text-muted" style="margin-bottom:2px">
+                <code style="background:var(--bg-surface);padding:1px 4px;border-radius:3px">{{ todo.file }}:{{ todo.line }}</code>
+              </div>
+              <div style="font-size:0.85rem;color:var(--text-secondary);border-left:2px solid var(--border);padding-left:var(--space-2)">
+                <span style="color:var(--accent-red);font-weight:600">{{ todo.type }}</span>: {{ todo.text }}
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-muted text-sm">No TODO/FIXME comments found.</p>
+        {% endif %}
+      </div>
+
+      <!-- Process & Quality -->
+      {% if tech_data.get('commit_quality') %}
+      <div class="card animate-fade-in-up">
+        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">📝 Process Quality</h2>
+        <div class="flex items-center gap-4 mb-4">
+          <div style="font-size:2.5rem;font-weight:800;color: {% if tech_data.commit_quality.grade == 'A' %}var(--accent-green){% elif tech_data.commit_quality.grade == 'B' %}var(--accent-blue){% elif tech_data.commit_quality.grade == 'C' %}var(--accent-yellow){% else %}var(--accent-red){% endif %}">
+            {{ tech_data.commit_quality.grade }}
+          </div>
+          <div>
+            <div class="text-sm" style="color:var(--text-primary);font-weight:600">Commit Convention Score: {{ tech_data.commit_quality.score }}/100</div>
+            <div class="text-xs text-muted">Based on {{ tech_data.commit_quality.total }} recent commits</div>
+          </div>
+        </div>
+        <ul style="list-style:none;padding:0;margin:0;font-size:0.9rem;color:var(--text-secondary)">
+          <li style="padding:var(--space-2) 0;border-bottom:1px solid var(--border)" class="flex justify-between">
+            <span>Conventional Commits (feat, fix, etc)</span>
+            <strong>{{ tech_data.commit_quality.conventional_commits }}</strong>
+          </li>
+          <li style="padding:var(--space-2) 0;border-bottom:1px solid var(--border)" class="flex justify-between">
+            <span>Noisy Commits (wip, fix, test)</span>
+            <strong style="color:var(--accent-orange)">{{ tech_data.commit_quality.noisy }}</strong>
+          </li>
+          <li style="padding:var(--space-2) 0" class="flex justify-between">
+            <span>Short/Vague Messages</span>
+            <strong style="color:var(--accent-red)">{{ tech_data.commit_quality.short_messages }}</strong>
+          </li>
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+</section>
+{% endblock %}

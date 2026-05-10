@@ -127,6 +127,13 @@ def fetch_pull_requests(owner: str, repo: str, state: str = "all", limit: int = 
                  "merged_at": pr.get("merged_at")} for pr in data if isinstance(pr, dict)]
     except Exception: return []
 
+def fetch_commit_files(owner: str, repo: str, sha: str) -> list[str]:
+    """Fetch changed files for a specific commit (GitHub API)."""
+    try:
+        data = _github_api_get(f"/repos/{quote(owner)}/{quote(repo)}/commits/{quote(sha)}")
+        return [f["filename"] for f in data.get("files", []) if "filename" in f]
+    except Exception: return []
+
 # ── GitHub API core ──
 def _validate_url(url: str):
     parsed = urlparse(url)
@@ -205,9 +212,24 @@ def _parse_from_clone(url: str) -> list[dict]:
 
 def _extract_from_repo(repo) -> list[dict]:
     fmt = "%H|%s|%an|%ae|%ad|%D"
-    try: log_output = repo.git.log("--all", f"--pretty=format:{fmt}", "--date=iso")
-    except Exception: log_output = repo.git.log(f"--pretty=format:{fmt}", "--date=iso")
-    return [c for line in log_output.splitlines() if (c := _parse_full_line(line))]
+    try: log_output = repo.git.log("--all", "--name-status", f"--pretty=format:COMMIT|{fmt}", "--date=iso")
+    except Exception: log_output = repo.git.log("--name-status", f"--pretty=format:COMMIT|{fmt}", "--date=iso")
+    
+    commits = []
+    current_commit = None
+    for line in log_output.splitlines():
+        line = line.strip()
+        if not line: continue
+        if line.startswith("COMMIT|"):
+            if current_commit: commits.append(current_commit)
+            current_commit = _parse_full_line(line[7:])
+            if current_commit: current_commit["changed_files"] = []
+        elif current_commit and "\t" in line:
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                current_commit["changed_files"].append(parts[-1])
+    if current_commit: commits.append(current_commit)
+    return commits[:config.MAX_COMMITS_PER_ANALYSIS]
 
 # ── Line parsing ──
 def _parse_lines(lines: list[str]) -> list[dict]:

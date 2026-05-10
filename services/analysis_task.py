@@ -50,22 +50,17 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
         groups = group_commits(commits)
         commit_data_text = serialize_groups_for_prompt(groups)
         
-        # Update DB with commits (so the UI has them even if AI fails)
-        with database.get_db() as conn:
-            conn.execute(
-                "UPDATE analyses SET raw_commits_json=?, grouped_commits_json=?, commit_count=? WHERE id=?",
-                (json.dumps(commits, default=str), json.dumps(groups, default=str), len(commits), analysis_id)
-            )
-
-        # 3. Fetch Metadata & Codebase (for URLs)
-        repo_metadata = None
-        tech_data = {}
-        arch_data = {}
-
         if input_mode == "url" and "github.com" in input_data:
             try:
                 owner, repo = extract_owner_repo(input_data)
                 cache_key = f"{owner}/{repo}"
+
+                # Update DB with commits (so the UI has them even if AI fails)
+                with database.get_db() as conn:
+                    conn.execute(
+                        "UPDATE analyses SET raw_commits_json=?, grouped_commits_json=?, commit_count=? WHERE id=?",
+                        (json.dumps(commits, default=str), json.dumps(groups, default=str), len(commits), analysis_id)
+                    )
 
                 # Metadata
                 cached_meta = get_cached(cache_key, "_meta")

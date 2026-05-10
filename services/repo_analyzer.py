@@ -69,6 +69,8 @@ class RepoAnalysis:
     hotspots: list[dict] = field(default_factory=list)
     commit_quality: dict = field(default_factory=dict)
     risk_items: list[dict] = field(default_factory=list)
+    complexity_metrics: dict = field(default_factory=dict)
+    entry_points: list[str] = field(default_factory=list)
 
 def analyze_repository(file_tree: list[dict], file_contents: dict[str, str],
                        commits: list[dict] | None = None,
@@ -81,10 +83,15 @@ def analyze_repository(file_tree: list[dict], file_contents: dict[str, str],
     analysis.language_stats = compute_language_stats(file_tree, github_languages)
     analysis.directory_summary = summarize_directory_structure(file_tree)
     analysis.todos = find_todos(file_contents)
+    analysis.entry_points = detect_entry_points(file_tree)
     if commits:
         analysis.hotspots = detect_hotspots(commits)
         analysis.commit_quality = score_commit_quality(commits)
-        analysis.risk_items = detect_risks(commits, file_tree, analysis.todos)
+        analysis.risk_items = detect_risks(commits, file_tree, analysis.todos, file_contents, analysis.hotspots)
+    
+    analysis.complexity_metrics = compute_complexity_metrics(
+        file_tree, file_contents, analysis.dependencies, analysis.hotspots, analysis.todos
+    )
     return analysis
 
 def detect_technologies(file_tree: list[dict], file_contents: dict[str, str]) -> list[TechDetection]:
@@ -193,13 +200,22 @@ def find_todos(file_contents: dict[str, str]) -> list[dict]:
     return todos[:100]
 
 def detect_hotspots(commits: list[dict]) -> list[dict]:
-    """Find files with the most commit churn from commit messages."""
+    """Find files with the most commit churn and contributor overlap."""
     file_mentions = Counter()
+    file_authors = defaultdict(set)
     for c in commits:
-        msg = c.get("message", "")
-        files = re.findall(r'[\w/]+\.[\w]+', msg)
-        for f in files: file_mentions[f] += 1
-    return [{"file": f, "mentions": count, "risk": "high" if count > 10 else "medium" if count > 5 else "low"}
+        author = c.get("author", "Unknown")
+        files = c.get("changed_files", [])
+        if not files:
+            msg = c.get("message", "")
+            files = re.findall(r'[\w/]+\.[\w]+', msg)
+        for f in files:
+            file_mentions[f] += 1
+            file_authors[f].add(author)
+    
+    return [{"file": f, "mentions": count, "authors": len(file_authors[f]), 
+             "risk": "CRITICAL" if count > 15 and len(file_authors[f]) > 2 else "HIGH" if count > 10 else "MEDIUM" if count > 5 else "LOW",
+             "confidence": min(1.0, round(0.5 + (count * 0.02) + (len(file_authors[f]) * 0.05), 2))}
             for f, count in file_mentions.most_common(15) if count >= 2]
 
 def score_commit_quality(commits: list[dict]) -> dict:
@@ -213,20 +229,84 @@ def score_commit_quality(commits: list[dict]) -> dict:
             "short_messages": short_msg, "conventional_commits": has_type,
             "grade": "A" if quality_score >= 80 else "B" if quality_score >= 60 else "C" if quality_score >= 40 else "D"}
 
-def detect_risks(commits: list[dict], file_tree: list[dict], todos: list[dict]) -> list[dict]:
-    """Identify potential risk areas in the repository."""
+def detect_risks(commits: list[dict], file_tree: list[dict], todos: list[dict], file_contents: dict[str, str], hotspots: list[dict]) -> list[dict]:
+    """Identify potential risk areas with severity levels."""
     risks = []
     if len(todos) > 20:
-        risks.append({"type": "tech_debt", "severity": "medium",
-            "title": f"{len(todos)} TODO/FIXME items found", "description": "High number of unresolved tasks may indicate tech debt"})
+        risks.append({"type": "tech_debt", "severity": "HIGH", "confidence": min(1.0, round(0.7 + (len(todos)/100), 2)),
+            "title": f"{len(todos)} TODO/FIXME items found", "description": "High number of unresolved tasks may indicate technical debt."})
     large_files = [f for f in file_tree if f.get("size", 0) > 50000 and f["type"] == "blob"]
     if large_files:
-        risks.append({"type": "code_smell", "severity": "low",
-            "title": f"{len(large_files)} large files detected", "description": "Files over 50KB may need refactoring"})
+        risks.append({"type": "code_smell", "severity": "MEDIUM", "confidence": 0.95,
+            "title": f"{len(large_files)} large files detected", "description": "Files over 50KB are harder to maintain and should be refactored."})
     if commits:
         quality = score_commit_quality(commits)
         if quality["score"] < 40:
-            risks.append({"type": "process", "severity": "medium",
+            risks.append({"type": "process", "severity": "MEDIUM", "confidence": 0.9,
                 "title": f"Low commit quality score ({quality['score']}/100)",
-                "description": f"{quality['noisy']} noisy commits, {quality['short_messages']} short messages"})
+                "description": f"{quality['noisy']} noisy commits, {quality['short_messages']} short messages."})
+    
+    # Missing Documentation Risk
+    code_files = [p for p in file_contents.keys() if p.endswith(('.py', '.js', '.ts', '.java', '.go', '.rs'))]
+    if code_files:
+        docs = sum(1 for c in file_contents.values() if "/**" in c or '"""' in c or "'''" in c)
+        if docs / len(code_files) < 0.1:
+            risks.append({"type": "docs", "severity": "MEDIUM", "confidence": 0.85, "title": "Missing Documentation", 
+                          "description": "Less than 10% of key architectural files contain structured docstrings."})
+            
+    # Extremely Coupled Modules (indicated by critical hotspots)
+    critical_hotspots = [h for h in hotspots if h["risk"] in ("CRITICAL", "HIGH")]
+    if len(critical_hotspots) > 3:
+        risks.append({"type": "architecture", "severity": "CRITICAL", "title": "Highly Coupled Files Detected", 
+                      "confidence": min(1.0, round(0.7 + (len(critical_hotspots) * 0.05), 2)),
+                      "description": f"{len(critical_hotspots)} files are experiencing extreme churn from multiple authors, indicating tight coupling."})
+        
+    risks.sort(key=lambda r: {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}.get(r["severity"], 4))
     return risks
+
+def compute_complexity_metrics(file_tree: list[dict], file_contents: dict[str, str], dependencies: dict = None, hotspots: list = None, todos: list = None) -> dict:
+    """Approximate repository complexity using logarithmic normalization."""
+    import math
+    code_files = [f for f in file_tree if f["type"] == "blob"]
+    file_count = len(code_files)
+    max_depth = max([f["path"].count('/') for f in code_files] + [0])
+    avg_size = sum([f.get("size", 0) for f in code_files]) / max(file_count, 1)
+
+    # Calculate weighted components logarithmically
+    volume_score = min(30.0, (math.log10(max(file_count, 1)) * 10))
+    depth_score = min(15.0, max_depth * 1.5)
+    
+    total_deps = sum(len(d) for d in (dependencies or {}).values())
+    dep_score = min(20.0, (math.log10(max(total_deps, 1)) * 15))
+    
+    total_churn = sum(h.get("mentions", 0) for h in (hotspots or []))
+    hotspot_score = min(20.0, len(hotspots or []) * 2 + (math.log10(max(total_churn, 1)) * 5))
+    
+    todo_score = min(15.0, len(todos or []) * 0.5)
+    
+    total_score = round(min(100.0, volume_score + depth_score + dep_score + hotspot_score + todo_score))
+    
+    label = "Very High Complexity" if total_score > 80 else \
+            "High Complexity" if total_score > 60 else \
+            "Complex" if total_score > 40 else \
+            "Moderate" if total_score > 20 else "Minimal"
+
+    return {
+        "file_count": file_count,
+        "max_directory_depth": max_depth,
+        "average_file_size_bytes": round(avg_size),
+        "complexity_score": total_score,
+        "complexity_label": label,
+        "breakdown": {
+            "volume": round(volume_score + depth_score, 1),
+            "dependencies": round(dep_score, 1),
+            "churn_hotspots": round(hotspot_score, 1),
+            "tech_debt": round(todo_score, 1)
+        }
+    }
+
+def detect_entry_points(file_tree: list[dict]) -> list[str]:
+    """Find logical entry points of the repository."""
+    candidates = {"main.py", "app.py", "wsgi.py", "manage.py", "index.js", "server.js", "app.js", 
+                  "main.go", "index.ts", "server.ts", "Program.cs", "main.rs", "App.java"}
+    return [f["path"] for f in file_tree if f["type"] == "blob" and os.path.basename(f["path"]).lower() in candidates]

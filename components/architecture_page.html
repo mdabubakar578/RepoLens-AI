@@ -110,6 +110,18 @@
     </div>
     {% endif %}
 
+    <!-- Entry Points -->
+    {% if arch_data.get('entry_points') %}
+    <div class="card animate-fade-in-up mt-6">
+      <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">🚀 Entry Points</h2>
+      <div class="flex gap-2 wrap">
+        {% for ep in arch_data.entry_points %}
+        <code style="background:var(--bg-input);padding:4px 8px;border-radius:4px;color:var(--text-primary);font-size:0.9rem">{{ ep }}</code>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     <!-- API Endpoints -->
     {% if arch_data.get('api_endpoints') %}
     <div class="card animate-fade-in-up mt-6">
