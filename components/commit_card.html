@@ -47,12 +47,13 @@
 
   <div class="flex gap-2" style="flex-wrap:wrap">
     {% if analysis.status == 'done' %}
-      <a href="/result/{{ analysis.id }}"
+      <!-- url_for ensures route stays valid if blueprint prefix changes -->
+      <a href="{{ url_for('analyze.result', analysis_id=analysis.id) }}"
          class="btn btn--primary btn--sm"
          id="view-btn-{{ analysis.id }}">
         👁️ View Story
       </a>
-      <a href="/share/{{ analysis.slug }}"
+      <a href="{{ url_for('detail.share', slug=analysis.slug) }}"
          class="btn btn--ghost btn--sm"
          id="share-btn-{{ analysis.id }}"
          target="_blank">

@@ -73,12 +73,15 @@ class RAGService:
 
     def save_index(self, analysis_id: str):
         """Serialize index and chunks to disk."""
-        os.makedirs(".repolens/cache", exist_ok=True)
-        if self._index and self._use_local:
-            faiss.write_index(self._index, f".repolens/cache/{analysis_id}.index")
-        if self._chunks:
-            with open(f".repolens/cache/{analysis_id}_chunks.json", "w") as f:
-                json.dump([c.__dict__ for c in self._chunks], f)
+        try:
+            os.makedirs(".repolens/cache", exist_ok=True)
+            if self._index and self._use_local:
+                faiss.write_index(self._index, f".repolens/cache/{analysis_id}.index")
+            if self._chunks:
+                with open(f".repolens/cache/{analysis_id}_chunks.json", "w") as f:
+                    json.dump([c.__dict__ for c in self._chunks], f)
+        except Exception as e:
+            logger.error(f"Failed to save RAG index for {analysis_id}: {e}")
 
     def load_index(self, analysis_id: str) -> bool:
         """Load index and chunks from disk."""

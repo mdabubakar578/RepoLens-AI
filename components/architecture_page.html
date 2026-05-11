@@ -14,7 +14,8 @@
           <p class="section-label">Architecture Analysis</p>
           <h1 style="font-size:1.8rem">{{ analysis.repo_name }}</h1>
           <p class="text-sm text-muted mt-1">
-            <a href="/result/{{ analysis.id }}" class="text-accent">← Back to results</a>
+            <!-- url_for ensures route stays valid if blueprint prefix changes -->
+            <a href="{{ url_for('analyze.result', analysis_id=analysis.id) }}" class="text-accent">← Back to results</a>
             &nbsp;·&nbsp;
             {% if arch_data.get('patterns') %}
             {{ arch_data.patterns[0].name }} Architecture
@@ -22,8 +23,9 @@
           </p>
         </div>
         <div class="flex gap-2">
-          <a href="/qa/{{ analysis.id }}" class="btn btn--secondary btn--sm">💬 Ask Q&A</a>
-          <a href="/risk/{{ analysis.id }}" class="btn btn--secondary btn--sm">⚠️ Risk Report</a>
+          <!-- Dynamic nav links using url_for for blueprint route safety -->
+          <a href="{{ url_for('qa.qa_page', analysis_id=analysis.id) }}" class="btn btn--secondary btn--sm">💬 Ask Q&A</a>
+          <a href="{{ url_for('risk.risk_analysis', analysis_id=analysis.id) }}" class="btn btn--secondary btn--sm">⚠️ Risk Report</a>
         </div>
       </div>
     </div>

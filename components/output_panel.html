@@ -44,12 +44,13 @@
         <div class="flex gap-2">
           {{ copy_button('narrative-text-' + fmt_key, 'Copy') }}
           {% if analysis.get('id') %}
-            <a href="/export/{{ analysis.id }}/{{ fmt_key }}/md"
+            <!-- url_for ensures export routes stay valid if blueprint changes -->
+            <a href="{{ url_for('analyze.export', analysis_id=analysis.id, fmt=fmt_key, ext='md') }}"
                class="btn btn--ghost btn--sm"
                id="export-md-{{ fmt_key }}">
               ⬇️ .md
             </a>
-            <a href="/export/{{ analysis.id }}/{{ fmt_key }}/txt"
+            <a href="{{ url_for('analyze.export', analysis_id=analysis.id, fmt=fmt_key, ext='txt') }}"
                class="btn btn--ghost btn--sm"
                id="export-txt-{{ fmt_key }}">
               ⬇️ .txt
@@ -87,7 +88,8 @@
       📄 Toggle README Format
     </button>
     {% if analysis.get('slug') %}
-      <a href="/share/{{ analysis.slug }}"
+      <!-- url_for for share link -->
+      <a href="{{ url_for('detail.share', slug=analysis.slug) }}"
          class="btn btn--ghost btn--sm"
          id="share-link-btn"
          target="_blank">

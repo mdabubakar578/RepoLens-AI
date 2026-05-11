@@ -14,7 +14,8 @@
           <p class="section-label">Repository Risk Dashboard</p>
           <h1 style="font-size:1.8rem">{{ analysis.repo_name }}</h1>
           <p class="text-sm text-muted mt-1">
-            <a href="/architecture/{{ analysis.id }}" class="text-accent">← Back to Architecture</a>
+            <!-- url_for ensures route stays valid if blueprint prefix changes -->
+            <a href="{{ url_for('architecture.architecture', analysis_id=analysis.id) }}" class="text-accent">← Back to Architecture</a>
             &nbsp;·&nbsp;
             Maintainability & Technical Debt
           </p>

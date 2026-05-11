@@ -13,7 +13,8 @@
           <p class="section-label">Repository Q&A</p>
           <h1 style="font-size:1.8rem">Ask about {{ analysis.repo_name }}</h1>
           <p class="text-sm text-muted mt-1">
-            <a href="/result/{{ analysis.id }}" class="text-accent">← Back to results</a>
+            <!-- url_for ensures route stays valid if blueprint prefix changes -->
+            <a href="{{ url_for('analyze.result', analysis_id=analysis.id) }}" class="text-accent">← Back to results</a>
             &nbsp;·&nbsp; AI-powered code understanding
           </p>
         </div>
@@ -58,6 +59,8 @@
 {% block extra_js %}
 <script>
 const ANALYSIS_ID = {{ analysis.id }};
+// url_for injected by Jinja for route safety
+const ASK_URL = "{{ url_for('qa.ask_question', analysis_id=analysis.id) }}";
 
 function askSuggested(btn) {
   document.getElementById('qa-input').value = btn.textContent.trim();
@@ -83,20 +86,30 @@ async function submitQuestion(e) {
   addMessage('loading', 'Analyzing repository and generating answer...', loadingId);
 
   try {
-    const resp = await fetch(`/qa/${ANALYSIS_ID}/ask`, {
+    const resp = await fetch(ASK_URL, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({question})
     });
-    const data = await resp.json();
+    
+    // Parse JSON safely
+    let data;
+    try {
+      data = await resp.json();
+    } catch (parseErr) {
+      throw new Error("Invalid response format from server.");
+    }
 
     // Remove loading
     document.getElementById(loadingId)?.remove();
 
-    if (data.error) {
+    if (!resp.ok && (!data || !data.answer)) {
+      addMessage('error', data?.error || 'Server error occurred.');
+    } else if (data.error) {
       addMessage('error', data.error);
     } else {
-      addMessage('assistant', data.answer || 'No answer available.', null, data.sources);
+      const safeSources = Array.isArray(data.sources) ? data.sources : [];
+      addMessage('assistant', data.answer || 'No answer available.', null, safeSources, data.warning);
     }
   } catch (err) {
     document.getElementById(loadingId)?.remove();
@@ -107,7 +120,7 @@ async function submitQuestion(e) {
   submitBtn.textContent = 'Ask →';
 }
 
-function addMessage(type, content, id, sources = []) {
+function addMessage(type, content, id, sources = [], warning = null) {
   const container = document.getElementById('chat-messages');
   const div = document.createElement('div');
   if (id) div.id = id;
@@ -139,10 +152,20 @@ function addMessage(type, content, id, sources = []) {
           </div>`;
       });
       sourceHtml += `</div></details>`;
+    } else {
+      sourceHtml = `<div style="margin-top:var(--space-4);background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:0.85rem;color:var(--text-muted);display:flex;align-items:center;gap:8px">
+        <span style="opacity:0.7">🔍</span> <i>No semantic evidence available for this response.</i>
+      </div>`;
+    }
+
+    let warningHtml = '';
+    if (warning) {
+      warningHtml = `<div class="alert alert--warning" style="margin-bottom:var(--space-4);font-size:0.85rem">⚠️ ${escapeHtml(warning)}</div>`;
     }
 
     div.innerHTML = `<div class="card" style="padding:var(--space-6)">
       <p style="margin:0 0 var(--space-2) 0;font-size:0.8rem;color:var(--text-muted)">🤖 RepoLens AI</p>
+      ${warningHtml}
       <div class="markdown-body">${simpleMarkdown(content)}</div>
       ${sourceHtml}
       </div>`;

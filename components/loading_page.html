@@ -33,8 +33,11 @@
 
 {% block extra_js %}
 <script>
-  const analysisId = {{ analysis.id }};
+const analysisId = {{ analysis.id }};
   const targetFmt = "{{ fmt }}";
+  // url_for values injected by Jinja for route safety
+  const statusUrl = "{{ url_for('home.status', analysis_id=analysis.id) }}";
+  const resultUrl = "{{ url_for('analyze.result', analysis_id=analysis.id) }}";
   let pollCount = 0;
   const progressBar = document.getElementById('progress-bar');
   const statusText = document.getElementById('status-text');
@@ -64,18 +67,20 @@
 
   async function checkStatus() {
     try {
-      const res = await fetch(`/status/${analysisId}`);
+      const res = await fetch(statusUrl);
       if (res.ok) {
         const data = await res.json();
         if (data.status === 'done') {
           progressBar.style.width = '100%';
           statusText.textContent = "Analysis complete! Redirecting...";
           setTimeout(() => {
-            window.location.href = `/result/${analysisId}?fmt=${targetFmt}`;
+            // Redirect to result page using Jinja-injected URL
+            window.location.href = `${resultUrl}?fmt=${targetFmt}`;
           }, 500);
           return; // Stop polling
         } else if (data.status === 'error') {
-          window.location.href = `/`; // Redirect back home, the flash message will show
+          // Redirect home; the flash message will show the error
+          window.location.href = '/';
           return;
         }
       }
