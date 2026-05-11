@@ -28,6 +28,11 @@
           {{ fmt_label }}
         </button>
       {% endfor %}
+      {% if ENABLE_QA and analysis.get('id') %}
+      <a href="{{ url_for('qa.qa_page', analysis_id=analysis.id) }}" class="tab-btn" style="text-decoration:none;display:flex;align-items:center;gap:4px">
+        💬 Ask Q&A
+      </a>
+      {% endif %}
     </div>
   </div>
 

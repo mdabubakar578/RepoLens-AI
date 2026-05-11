@@ -112,13 +112,10 @@ document.addEventListener('DOMContentLoaded', () => {
               <p class="section-label">Project overview</p>
               <h2 style="font-size:1.2rem">Contribution insights</h2>
             </div>
-            <div class="flex items-center gap-2">
-              <a href="{{ url_for('qa.qa_page', analysis_id=analysis.id) }}" class="btn btn--secondary btn--sm">💬 Ask Q&A</a>
-              {% if analysis.slug %}
-              <!-- url_for for share link -->
-              <a href="{{ url_for('detail.share', slug=analysis.slug, fmt=active_format) }}" class="btn btn--ghost btn--sm" target="_blank">Open share view</a>
-              {% endif %}
-            </div>
+            {% if analysis.slug %}
+            <!-- url_for for share link -->
+            <a href="{{ url_for('detail.share', slug=analysis.slug, fmt=active_format) }}" class="btn btn--ghost btn--sm" target="_blank">Open share view</a>
+            {% endif %}
           </div>
 
           <div class="insight-list">
