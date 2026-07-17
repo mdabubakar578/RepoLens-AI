@@ -8,7 +8,8 @@ import threading, json, logging, os
 import database, config
 from services.github_service import (
     parse_from_url, parse_from_file, parse_from_text,
-    extract_owner_repo, fetch_repo_metadata, fetch_file_tree, fetch_file_content
+    extract_owner_repo, fetch_repo_metadata, fetch_file_tree, fetch_file_content,
+    fetch_repository_archive,
 )
 from services.commit_classifier import group_commits, serialize_groups_for_prompt
 from services.repo_analyzer import analyze_repository
@@ -114,14 +115,18 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                         content = fetch_file_content(owner, repo, fp, branch)
                         if content: file_contents[fp] = content
 
+                    source_mode = "github-api"
+                    if len(file_contents) < 3:
+                        logger.info(f"Task {analysis_id}: Source fetch sparse; using archive fallback.")
+                        archive_tree, archive_contents = fetch_repository_archive(owner, repo, branch)
+                        if archive_tree and not file_tree:
+                            file_tree = archive_tree
+                        if archive_contents:
+                            file_contents.update(archive_contents)
+                            source_mode = "github-archive"
+
                     github_langs = (repo_metadata or {}).get("languages", {})
                     repo_analysis = analyze_repository(file_tree, file_contents, commits, github_langs)
-
-                    # Index for Semantic Q&A
-                    logger.info(f"Task {analysis_id}: Building RAG index...")
-                    rag = RAGService()
-                    rag.index_repository(str(analysis_id), file_contents)
-                    logger.info(f"Task {analysis_id}: RAG index complete.")
 
                     tech_data = {
                         "technologies": [{"name": t.name, "category": t.category, "confidence": t.confidence} for t in repo_analysis.technologies[:15]],
@@ -132,7 +137,20 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                         "commit_quality": repo_analysis.commit_quality,
                         "risk_items": repo_analysis.risk_items,
                         "directory_summary": repo_analysis.directory_summary,
+                        "source_files_indexed": len(file_contents),
+                        "source_mode": source_mode,
                     }
+
+                    try:
+                        logger.info(f"Task {analysis_id}: Building RAG index...")
+                        rag = RAGService()
+                        chunk_count = rag.index_repository(str(analysis_id), file_contents)
+                        tech_data["rag_chunks"] = chunk_count
+                        logger.info(f"Task {analysis_id}: RAG index complete (%d chunks).", chunk_count)
+                    except Exception as rag_exc:
+                        tech_data["rag_chunks"] = 0
+                        tech_data["rag_warning"] = str(rag_exc)
+                        logger.warning(f"Task {analysis_id}: RAG indexing failed: {rag_exc}")
 
                     logger.info(f"Task {analysis_id}: Analyzing architecture...")
                     arch_report = analyze_architecture(file_tree, file_contents)
@@ -144,6 +162,32 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                         "insights": arch_report.insights,
                     }
                     logger.info(f"Task {analysis_id}: Enhanced analysis complete.")
+                else:
+                    archive_tree, archive_contents = fetch_repository_archive(owner, repo, branch)
+                    if archive_tree:
+                        file_tree = archive_tree
+                        repo_analysis = analyze_repository(file_tree, archive_contents, commits, (repo_metadata or {}).get("languages", {}))
+                        rag = RAGService()
+                        chunk_count = rag.index_repository(str(analysis_id), archive_contents)
+                        tech_data = {
+                            "technologies": [{"name": t.name, "category": t.category, "confidence": t.confidence} for t in repo_analysis.technologies[:15]],
+                            "dependencies": repo_analysis.dependencies,
+                            "language_stats": repo_analysis.language_stats,
+                            "todos": repo_analysis.todos[:20],
+                            "hotspots": repo_analysis.hotspots[:10],
+                            "commit_quality": repo_analysis.commit_quality,
+                            "risk_items": repo_analysis.risk_items,
+                            "directory_summary": repo_analysis.directory_summary,
+                            "source_files_indexed": len(archive_contents),
+                            "source_mode": "github-archive",
+                            "rag_chunks": chunk_count,
+                        }
+                        arch_report = analyze_architecture(file_tree, archive_contents)
+                        arch_data = {
+                            "patterns": arch_report.patterns, "modules": arch_report.modules,
+                            "api_endpoints": arch_report.api_endpoints[:20],
+                            "description": arch_report.description, "insights": arch_report.insights,
+                        }
             except Exception as exc:
                 logger.warning(f"Task {analysis_id}: Enhanced analysis failed (non-fatal): {exc}")
 

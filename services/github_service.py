@@ -5,7 +5,7 @@ GitHub API interactions and git log parsing.
 Refactored from git_parser.py with metadata, file tree, and rate limit awareness.
 """
 from __future__ import annotations
-import json, logging, re, shutil, tempfile, base64, os
+import json, logging, re, shutil, tempfile, base64, os, io, zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from urllib.error import HTTPError, URLError
@@ -116,8 +116,91 @@ def fetch_file_content(owner: str, repo: str, path: str, branch: str = "main") -
         data = _github_api_get(f"/repos/{quote(owner)}/{quote(repo)}/contents/{quote(path, safe='/')}?ref={quote(branch)}")
         if data.get("encoding") == "base64" and data.get("content"):
             return base64.b64decode(data["content"]).decode("utf-8", errors="replace")[:config.MAX_FILE_SCAN_SIZE]
-    except Exception: pass
+    except Exception as exc:
+        logger.debug("GitHub contents API failed for %s; trying raw content: %s", path, exc)
+    try:
+        raw_url = (
+            "https://raw.githubusercontent.com/"
+            f"{quote(owner)}/{quote(repo)}/{quote(branch, safe='')}/{quote(path, safe='/')}"
+        )
+        request = Request(raw_url, headers={"User-Agent": config.GITHUB_API_USER_AGENT})
+        with urlopen(request, timeout=config.GITHUB_API_TIMEOUT_SECONDS) as response:
+            payload = response.read(config.MAX_FILE_SCAN_SIZE + 1)
+        return payload[:config.MAX_FILE_SCAN_SIZE].decode("utf-8", errors="replace")
+    except Exception as exc:
+        logger.debug("Raw GitHub content failed for %s: %s", path, exc)
     return None
+
+def fetch_repository_archive(owner: str, repo: str, branch: str = "main") -> tuple[list[dict], dict[str, str]]:
+    """Download one bounded public archive as a REST-quota-independent fallback."""
+    archive_url = (
+        "https://codeload.github.com/"
+        f"{quote(owner)}/{quote(repo)}/zip/refs/heads/{quote(branch, safe='')}"
+    )
+    request = Request(archive_url, headers={"User-Agent": config.GITHUB_API_USER_AGENT})
+    max_archive_bytes = getattr(config, "MAX_ARCHIVE_DOWNLOAD_BYTES", 25_000_000)
+    try:
+        with urlopen(request, timeout=max(config.GITHUB_API_TIMEOUT_SECONDS, 30)) as response:
+            payload = response.read(max_archive_bytes + 1)
+        if len(payload) > max_archive_bytes:
+            raise RuntimeError("Repository archive is too large for hosted analysis.")
+        return _parse_repository_archive(payload)
+    except Exception as exc:
+        logger.warning("GitHub archive fallback failed: %s", exc)
+        return [], {}
+
+def _parse_repository_archive(payload: bytes) -> tuple[list[dict], dict[str, str]]:
+    """Parse a GitHub ZIP payload. Split out for deterministic unit testing."""
+    tree: list[dict] = []
+    available: list[tuple[str, zipfile.ZipInfo]] = []
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        for info in archive.infolist():
+            if info.is_dir():
+                continue
+            parts = info.filename.split("/", 1)
+            if len(parts) != 2 or not parts[1]:
+                continue
+            path = parts[1]
+            if _should_skip_path(path):
+                continue
+            tree.append({"path": path, "type": "blob", "size": info.file_size})
+            available.append((path, info))
+            if len(tree) >= config.MAX_REPO_FILES:
+                break
+        selected = sorted(available, key=lambda item: _archive_content_priority(item[0], item[1].file_size))[:30]
+        contents: dict[str, str] = {}
+        for path, info in selected:
+            if info.file_size > config.MAX_FILE_SCAN_SIZE:
+                continue
+            try:
+                raw = archive.read(info)
+                if b"\x00" in raw[:1024]:
+                    continue
+                contents[path] = raw.decode("utf-8", errors="replace")[:config.MAX_FILE_SCAN_SIZE]
+            except Exception:
+                continue
+    return tree, contents
+
+def _archive_content_priority(path: str, size: int) -> tuple[int, int, str]:
+    lower = path.lower()
+    basename = os.path.basename(lower)
+    priority_names = {
+        "readme.md", "requirements.txt", "pyproject.toml", "package.json",
+        "app.py", "main.py", "wsgi.py", "config.py", "database.py",
+        "dockerfile", "render.yaml", ".env.example",
+    }
+    source_extensions = (".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs")
+    if basename in priority_names:
+        rank = 0
+    elif any(token in basename for token in ("service", "route", "model", "schema", "auth", "controller")):
+        rank = 1
+    elif lower.endswith(source_extensions):
+        rank = 2
+    elif lower.endswith((".md", ".txt", ".json", ".yaml", ".yml", ".html", ".css")):
+        rank = 3
+    else:
+        rank = 9
+    return rank, size, lower
 
 def fetch_branches(owner: str, repo: str) -> list[str]:
     try:

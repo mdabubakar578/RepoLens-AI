@@ -21,14 +21,11 @@ logger = logging.getLogger("repolens.gemini")
 
 try:
     from google import genai
-    from google.api_core.exceptions import ResourceExhausted, DeadlineExceeded, InvalidArgument, GoogleAPIError
+    from google.genai.errors import APIError
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
-    ResourceExhausted = Exception
-    DeadlineExceeded = Exception
-    InvalidArgument = Exception
-    GoogleAPIError = Exception
+    APIError = Exception
 
 
 @dataclass
@@ -263,10 +260,22 @@ class GeminiClient:
                 if attempt == 3:
                     return GeminiResponse(content="", success=False, error="API timeout")
                 time.sleep(2)
-            except ResourceExhausted as exc:
-                wait = min(2 ** attempt * 2, 30)
-                logger.warning("Gemini Rate limited/Quota Exhausted (attempt %d/3): %s", attempt, exc)
-                time.sleep(wait)
+            except APIError as exc:
+                err_msg = str(exc).lower()
+                status_code = getattr(exc, "code", None)
+                if status_code == 429 or "quota" in err_msg or "rate" in err_msg:
+                    wait = min(2 ** attempt * 2, 30)
+                    logger.warning("Gemini rate limited/quota exhausted (attempt %d/3): %s", attempt, exc)
+                    if attempt == 3:
+                        return GeminiResponse(content="", success=False, error="Gemini quota exhausted")
+                    time.sleep(wait)
+                    continue
+                if "safety" in err_msg or "blocked" in err_msg:
+                    logger.warning("Gemini safety filter refusal: %s", exc)
+                    return GeminiResponse(content="", success=False, error="Safety filter refusal")
+                logger.error("Gemini API error (attempt %d/3): %s", attempt, exc)
+                if attempt < 3:
+                    time.sleep(2 ** attempt)
             except Exception as exc:
                 # Catch-all for safety filters or other API errors
                 err_msg = str(exc).lower()
@@ -374,6 +383,8 @@ def _parse_commit_sections(commit_data_text: str) -> list[dict]:
 
 
 def _parse_commit_item(line: str) -> dict | None:
+    if "Milestones:" in line and not line.startswith("["):
+        return None
     match = re.match(r"^\[(?P<label>[^\]]+)\]\s+(?P<message>.*?)(?:\s+\(by\s+.*\))?$", line)
     if match:
         return {"label": match.group("label").strip(), "message": match.group("message").strip()}
