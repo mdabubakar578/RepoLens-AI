@@ -10,7 +10,7 @@ import time
 import database, config
 from services.gemini_client import gemini
 from services.rag_service import RAGService
-from services.github_service import extract_owner_repo, fetch_file_content, fetch_file_tree
+from services.github_service import extract_owner_repo, fetch_repository_archive
 
 logger = logging.getLogger("repolens.qa")
 qa_bp = Blueprint("qa", __name__, template_folder="../components")
@@ -76,7 +76,20 @@ def ask_question(analysis_id: int):
         rag_missing = False
         
         try:
-            if rag.load_index(str(analysis_id)):
+            index_loaded = rag.load_index(str(analysis_id))
+            if not index_loaded and analysis.get("repo_url"):
+                try:
+                    owner, repo = extract_owner_repo(analysis["repo_url"])
+                    branch = (extended.get("metadata") or {}).get("default_branch", "main")
+                    _, recovered_contents = fetch_repository_archive(owner, repo, branch)
+                    if recovered_contents:
+                        rag.index_repository(str(analysis_id), recovered_contents)
+                        index_loaded = True
+                        logger.info("Rebuilt RAG index %s from %d archive files", analysis_id, len(recovered_contents))
+                except Exception as rebuild_err:
+                    logger.warning("Could not rebuild RAG index %s: %s", analysis_id, rebuild_err)
+
+            if index_loaded:
                 results = rag.search(question)
                 if results:
                     parts = []
@@ -99,7 +112,8 @@ def ask_question(analysis_id: int):
                             "start_line": r.chunk.start_line,
                             "end_line": r.chunk.end_line,
                             "score": round(r.score, 2),
-                            "relevance": r.relevance
+                            "relevance": r.relevance,
+                            "snippet": r.chunk.content[:600],
                         })
                     rag_context_str = "\n\n".join(parts)
                     context_parts.append(f"Relevant code:\n{rag_context_str}")
@@ -117,12 +131,12 @@ def ask_question(analysis_id: int):
         # Fallback generator
         def generate_fallback_answer(sources_list):
             if not sources_list:
-                return "<span class='badge badge--warning'>Retrieval-Only Mode</span>\n\nNo relevant code context was found to answer your question."
-            ans = "<span class='badge badge--warning'>Retrieval-Only Mode</span>\n\nAI generation is currently unavailable. I performed a semantic search and found the following relevant code sections:\n\n"
+                return "**Source retrieval mode**\n\nNo matching source section was found. Try naming a feature, file, class, or function."
+            ans = "**Source-grounded retrieval**\n\nThe generative model is unavailable, so RepoLens returned the strongest matching repository evidence without inventing an answer:\n\n"
             for src in sources_list:
                 score_pct = int(src['score'] * 100)
-                ans += f"- `{src['file_path']}` (Lines {src['start_line']}-{src['end_line']}) — **{score_pct}% match**\n"
-            ans += "\n*Expand the Evidence Drawer below to read the exact code.*"
+                ans += f"- `{src['file_path']}` (lines {src['start_line']}-{src['end_line']}) - **{score_pct}% match**\n"
+            ans += "\nExpand the evidence panel to inspect the retrieved source code."
             return ans
 
         warning_msg = None
@@ -141,7 +155,7 @@ def ask_question(analysis_id: int):
                 "tokens_used": 0,
                 "provider": "Retrieval-only fallback",
                 "fallback": True,
-                "warning": "Gemini not configured"
+                "warning": "Gemini generation is unavailable; verified repository retrieval is still active."
             })
 
         # Generate

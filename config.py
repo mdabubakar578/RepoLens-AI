@@ -47,6 +47,7 @@ MAX_PASTE_CHARS = 50_000
 MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024  # 2 MB
 MAX_FILE_SCAN_SIZE = 100_000           # Max chars per file for analysis
 MAX_REPO_FILES = 500                   # Max files to scan in a repo
+MAX_ARCHIVE_DOWNLOAD_BYTES = 25_000_000 # Bound public archive fallback memory
 CLONE_DEPTH = 200
 ENABLE_GIT_CLONE_FALLBACK = True
 
