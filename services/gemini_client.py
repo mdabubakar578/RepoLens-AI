@@ -226,6 +226,7 @@ class GeminiClient:
         full_prompt = f"System: {system}\n\nUser: {prompt}" if system else prompt
 
         import concurrent.futures
+        last_error = "API calls exhausted"
         for attempt in range(1, 4):
             try:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -256,6 +257,7 @@ class GeminiClient:
                 )
 
             except concurrent.futures.TimeoutError:
+                last_error = "API timeout"
                 logger.error("Gemini call timed out (attempt %d/3)", attempt)
                 if attempt == 3:
                     return GeminiResponse(content="", success=False, error="API timeout")
@@ -263,6 +265,13 @@ class GeminiClient:
             except APIError as exc:
                 err_msg = str(exc).lower()
                 status_code = getattr(exc, "code", None)
+                last_error = str(exc)[:300]
+                if status_code == 404 or "not found" in err_msg or "not supported" in err_msg:
+                    replacement = self._find_supported_text_model()
+                    if replacement and replacement != self.model_name:
+                        logger.warning("Gemini model %s unavailable; retrying with %s", self.model_name, replacement)
+                        self.model_name = replacement
+                        continue
                 if status_code == 429 or "quota" in err_msg or "rate" in err_msg:
                     wait = min(2 ** attempt * 2, 30)
                     logger.warning("Gemini rate limited/quota exhausted (attempt %d/3): %s", attempt, exc)
@@ -279,6 +288,7 @@ class GeminiClient:
             except Exception as exc:
                 # Catch-all for safety filters or other API errors
                 err_msg = str(exc).lower()
+                last_error = str(exc)[:300]
                 if "safety" in err_msg or "blocked" in err_msg:
                     logger.warning("Gemini Safety Filter Refusal: %s", exc)
                     return GeminiResponse(content="", success=False, error="Safety filter refusal")
@@ -287,7 +297,27 @@ class GeminiClient:
                 if attempt < 3:
                     time.sleep(2 ** attempt)
 
-        return GeminiResponse(content="", success=False, error="API calls exhausted")
+        return GeminiResponse(content="", success=False, error=last_error)
+
+    def _find_supported_text_model(self) -> str | None:
+        """Discover a usable Flash text model when a configured model expires."""
+        try:
+            candidates = []
+            for model in self.client.models.list():
+                name = (getattr(model, "name", "") or "").split("/")[-1]
+                actions = set(getattr(model, "supported_actions", None) or [])
+                lower = name.lower()
+                if actions and "generateContent" not in actions:
+                    continue
+                if "gemini" not in lower or "flash" not in lower:
+                    continue
+                if any(token in lower for token in ("image", "tts", "live", "embedding", "robotics")):
+                    continue
+                candidates.append(name)
+            return _choose_supported_model(candidates)
+        except Exception as exc:
+            logger.warning("Could not discover Gemini models: %s", exc)
+            return None
 
 
 def _generate_local_narratives(commit_data_text: str, repo_name: str = "") -> dict[str, str]:
@@ -295,6 +325,19 @@ def _generate_local_narratives(commit_data_text: str, repo_name: str = "") -> di
         fmt: _generate_local_narrative(fmt, commit_data_text, repo_name)
         for fmt in ["release", "standup", "onboarding", "portfolio"]
     }
+
+
+def _choose_supported_model(names: list[str]) -> str | None:
+    """Prefer stable, recent Flash models while remaining future compatible."""
+    if not names:
+        return None
+    preferred = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    available = set(names)
+    for name in preferred:
+        if name in available:
+            return name
+    stable = [name for name in names if not any(tag in name for tag in ("preview", "exp"))]
+    return sorted(stable or names, reverse=True)[0]
 
 
 def _generate_local_narrative(fmt: str, commit_data_text: str, repo_name: str = "") -> str:

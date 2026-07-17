@@ -9,12 +9,16 @@ if "dotenv" not in sys.modules:
     dotenv_stub.load_dotenv = lambda *args, **kwargs: None
     sys.modules["dotenv"] = dotenv_stub
 
-from services.gemini_client import _generate_local_narrative
+from services.gemini_client import _choose_supported_model, _generate_local_narrative
 from services.github_service import _parse_repository_archive
 from services.rag_service import RAGService
 
 
 class ProductionFallbackTests(unittest.TestCase):
+    def test_supported_model_selection_prefers_stable_flash(self):
+        names = ["gemini-3-flash-preview", "gemini-2.5-flash-lite", "gemini-2.5-flash"]
+        self.assertEqual("gemini-2.5-flash", _choose_supported_model(names))
+
     def test_milestones_do_not_inflate_commit_total(self):
         commit_data = """
 ## Week of Jul 13, 2026 (2 commits)
