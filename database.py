@@ -116,20 +116,16 @@ def get_extended_data(analysis_id) -> dict:
     return {}
 
 def seed_demo_analyses_if_empty():
-    """Insert demo analyses into a fresh database so hosted demos are explorable."""
+    """Insert demo analyses when they are missing so hosted demos are explorable."""
     if os.environ.get("ENABLE_DEMO_DATA", "true").lower() != "true":
         return
 
     with get_db() as conn:
-        existing_count = conn.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
-        if existing_count:
-            return
-
         from services.demo_data import DEMO_ANALYSES
 
         for demo in DEMO_ANALYSES:
             conn.execute(
-                """INSERT INTO analyses
+                """INSERT OR IGNORE INTO analyses
                    (slug, repo_url, repo_name, input_mode, raw_commits_json, grouped_commits_json,
                     narrative_release, narrative_standup, narrative_onboarding, narrative_portfolio,
                     extended_data_json, commit_count, status)
