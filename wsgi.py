@@ -1,8 +1,7 @@
 """
-wsgi.py — WSGI Entry Point for PythonAnywhere
-==============================================
-PythonAnywhere's web app configuration should point to this file.
-It exports the 'application' object that the WSGI server expects.
+wsgi.py — WSGI entry point for production servers.
+
+Gunicorn, Render, and PythonAnywhere can import the Flask app from here.
 """
 
 import sys
@@ -15,9 +14,9 @@ if project_home not in sys.path:
 
 from app import create_app
 
-# The WSGI server (like Gunicorn or PythonAnywhere's internal server)
-# looks for a variable named 'application' or 'app'.
+# WSGI servers commonly look for either `application` or `app`.
 application = create_app()
+app = application
 
 if __name__ == "__main__":
     application.run()
