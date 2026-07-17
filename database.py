@@ -38,6 +38,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_analyses_created ON analyses(created_at DESC);
         """)
     _migrate_extended_column()
+    seed_demo_analyses_if_empty()
 
 def _migrate_extended_column():
     """Add extended_data_json column if it doesn't exist (migration)."""
@@ -113,6 +114,42 @@ def get_extended_data(analysis_id) -> dict:
             try: return json.loads(row[0])
             except Exception: pass
     return {}
+
+def seed_demo_analyses_if_empty():
+    """Insert demo analyses into a fresh database so hosted demos are explorable."""
+    if os.environ.get("ENABLE_DEMO_DATA", "true").lower() != "true":
+        return
+
+    with get_db() as conn:
+        existing_count = conn.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
+        if existing_count:
+            return
+
+        from services.demo_data import DEMO_ANALYSES
+
+        for demo in DEMO_ANALYSES:
+            conn.execute(
+                """INSERT INTO analyses
+                   (slug, repo_url, repo_name, input_mode, raw_commits_json, grouped_commits_json,
+                    narrative_release, narrative_standup, narrative_onboarding, narrative_portfolio,
+                    extended_data_json, commit_count, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    demo["slug"],
+                    demo["repo_url"],
+                    demo["repo_name"],
+                    demo["input_mode"],
+                    demo["raw_commits_json"],
+                    demo["grouped_commits_json"],
+                    demo["narrative_release"],
+                    demo["narrative_standup"],
+                    demo["narrative_onboarding"],
+                    demo["narrative_portfolio"],
+                    demo["extended_data_json"],
+                    demo["commit_count"],
+                    demo["status"],
+                ),
+            )
 
 def recover_stale_analyses(minutes=10):
     """

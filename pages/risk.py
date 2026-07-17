@@ -15,9 +15,12 @@ def risk_analysis(analysis_id: int):
 
     extended = database.get_extended_data(analysis_id)
     tech_data = extended.get("technologies", {})
+    arch_data = extended.get("architecture", {})
+    if isinstance(arch_data, dict) and isinstance(tech_data, dict) and "complexity_metrics" not in arch_data:
+        arch_data["complexity_metrics"] = tech_data.get("complexity_metrics", {})
     raw_commits = []
     try: raw_commits = json.loads(analysis.get("raw_commits_json", "[]"))
     except Exception: pass
 
     return render_template("risk_page.html",
-        analysis=analysis, tech_data=tech_data, commits=raw_commits)
+        analysis=analysis, tech_data=tech_data, arch_data=arch_data, commits=raw_commits)
