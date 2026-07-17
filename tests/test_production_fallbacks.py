@@ -3,13 +3,14 @@ import sys
 import types
 import unittest
 import zipfile
+from unittest.mock import Mock
 
 if "dotenv" not in sys.modules:
     dotenv_stub = types.ModuleType("dotenv")
     dotenv_stub.load_dotenv = lambda *args, **kwargs: None
     sys.modules["dotenv"] = dotenv_stub
 
-from services.gemini_client import _choose_supported_model, _generate_local_narrative
+from services.gemini_client import GeminiClient, _choose_supported_model, _generate_local_narrative
 from services.github_service import _parse_repository_archive
 from services.rag_service import RAGService
 
@@ -18,6 +19,18 @@ class ProductionFallbackTests(unittest.TestCase):
     def test_supported_model_selection_prefers_stable_flash(self):
         names = ["gemini-3-flash-preview", "gemini-2.5-flash-lite", "gemini-2.5-flash"]
         self.assertEqual("gemini-2.5-flash", _choose_supported_model(names))
+
+    def test_invalid_key_disables_repeated_model_calls(self):
+        client = GeminiClient()
+        client._configured = True
+        client.model_name = "gemini-2.5-flash"
+        client.client = Mock()
+        from services import gemini_client as module
+        error = module.APIError(400, {"error": {"message": "API key not valid"}})
+        client.client.models.generate_content.side_effect = error
+        response = client._call("test")
+        self.assertFalse(response.success)
+        self.assertFalse(client.is_available())
 
     def test_milestones_do_not_inflate_commit_total(self):
         commit_data = """

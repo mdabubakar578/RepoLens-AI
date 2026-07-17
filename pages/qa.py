@@ -178,7 +178,7 @@ def ask_question(analysis_id: int):
                 "tokens_used": 0,
                 "provider": "Retrieval-only fallback",
                 "fallback": True,
-                "warning": f"Gemini API Error: {resp.error}"
+                "warning": "AI generation is temporarily unavailable; verified repository retrieval is still active."
             })
 
         # Response Validation Layer
