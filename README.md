@@ -121,6 +121,18 @@ GEMINI_API_KEY=your_api_key_here
 flask --app app run --debug
 ```
 
+## Deploy on Render
+
+RepoLens AI is a Flask/Python app, so it should be deployed as a web service, not with GitHub Pages.
+
+Render can use the included `render.yaml` configuration:
+
+- **Build command:** `pip install -r requirements-render.txt`
+- **Start command:** `gunicorn wsgi:app --bind 0.0.0.0:$PORT --timeout 120`
+- **Environment variables:** set `GEMINI_API_KEY` and `SECRET_KEY` in the Render dashboard.
+
+The Render dependency file intentionally skips FAISS and sentence-transformers so the free web service can build more reliably. Repository Q&A still works through keyword retrieval fallback. For full local semantic retrieval, install `requirements.txt`.
+
 ## CLI Usage
 
 Run analysis from the terminal:
