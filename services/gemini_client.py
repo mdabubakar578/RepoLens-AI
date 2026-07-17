@@ -8,6 +8,7 @@ quota management, and safety-filter trap logic.
 from __future__ import annotations
 
 import os
+import re
 import time
 import logging
 from dataclasses import dataclass
@@ -166,17 +167,19 @@ class GeminiClient:
 
     def generate_all(self, commit_data_text: str, repo_name: str = "") -> dict[str, str]:
         if not self.is_available():
-            return DEMO_OUTPUTS.copy()
+            logger.info("Gemini unavailable; using local narrative generation")
+            return _generate_local_narratives(commit_data_text, repo_name)
         results: dict[str, str] = {}
         for fmt in ["release", "standup", "onboarding", "portfolio"]:
             resp = self._call_narrative(fmt, commit_data_text)
-            results[fmt] = resp.content
+            results[fmt] = resp.content if resp.success else _generate_local_narrative(fmt, commit_data_text, repo_name)
         return results
 
     def generate_single(self, fmt: str, commit_data_text: str) -> str:
         if not self.is_available():
-            return DEMO_OUTPUTS.get(fmt, "Demo output not available.")
-        return self._call_narrative(fmt, commit_data_text).content
+            return _generate_local_narrative(fmt, commit_data_text)
+        resp = self._call_narrative(fmt, commit_data_text)
+        return resp.content if resp.success else _generate_local_narrative(fmt, commit_data_text)
 
     def analyze_architecture(
         self, repo_name: str, technologies: str, file_tree: str, file_contents: str
@@ -276,6 +279,130 @@ class GeminiClient:
                     time.sleep(2 ** attempt)
 
         return GeminiResponse(content="", success=False, error="API calls exhausted")
+
+
+def _generate_local_narratives(commit_data_text: str, repo_name: str = "") -> dict[str, str]:
+    return {
+        fmt: _generate_local_narrative(fmt, commit_data_text, repo_name)
+        for fmt in ["release", "standup", "onboarding", "portfolio"]
+    }
+
+
+def _generate_local_narrative(fmt: str, commit_data_text: str, repo_name: str = "") -> str:
+    repo_title = repo_name or "Repository"
+    weeks = _parse_commit_sections(commit_data_text)
+    total_commits = sum(len(section["items"]) for section in weeks)
+    type_counts = _count_commit_labels(weeks)
+
+    if fmt == "release":
+        lines = [f"# Release Notes - {repo_title}", ""]
+        for section in weeks:
+            lines.append(f"## {section['title']}")
+            lines.append("")
+            for item in section["items"][:12]:
+                lines.append(f"- **[{item['label']}]** {item['message']}")
+            lines.append("")
+        lines.extend(_summary_table(total_commits, type_counts))
+        return "\n".join(lines).strip()
+
+    if fmt == "standup":
+        lines = [f"# Standup Summary - {repo_title}", ""]
+        for section in weeks:
+            labels = _top_labels(section["items"])
+            focus = ", ".join(labels) if labels else "general maintenance"
+            examples = "; ".join(item["message"] for item in section["items"][:3])
+            lines.append(f"## {section['title']}")
+            lines.append(f"This period focused on {focus}. Key changes included: {examples}.")
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    if fmt == "onboarding":
+        lines = [
+            f"# Project History & Onboarding Guide - {repo_title}",
+            "",
+            f"This project has {total_commits} analyzed commits across {len(weeks)} activity group(s).",
+            "The commit history shows how the codebase evolved through features, fixes, refactors, documentation, and operational work.",
+            "",
+            "## Recent Evolution",
+        ]
+        for section in weeks:
+            lines.append(f"- **{section['title']}**: " + "; ".join(item["message"] for item in section["items"][:4]))
+        lines.extend([
+            "",
+            "## Suggested First Read",
+            "Start with the newest activity group, then review the generated architecture and risk pages for structure, hotspots, and process quality.",
+        ])
+        return "\n".join(lines).strip()
+
+    lines = [
+        f"# {repo_title}",
+        "",
+        f"RepoLens AI analyzed {total_commits} commits and grouped the work into readable project activity.",
+        "",
+        "## Development Signals",
+    ]
+    for label, count in sorted(type_counts.items(), key=lambda item: (-item[1], item[0])):
+        lines.append(f"- **{label}:** {count} commit(s)")
+    lines.extend([
+        "",
+        "## Recent Work",
+    ])
+    for section in weeks:
+        lines.append(f"- **{section['title']}**: " + "; ".join(item["message"] for item in section["items"][:4]))
+    return "\n".join(lines).strip()
+
+
+def _parse_commit_sections(commit_data_text: str) -> list[dict]:
+    sections: list[dict] = []
+    current = None
+    for raw_line in commit_data_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("## "):
+            title = line[3:].strip()
+            current = {"title": title, "items": []}
+            sections.append(current)
+            continue
+        if current is None:
+            current = {"title": "Analyzed Commits", "items": []}
+            sections.append(current)
+        item = _parse_commit_item(line)
+        if item:
+            current["items"].append(item)
+    return [section for section in sections if section["items"]] or [{"title": "Analyzed Commits", "items": []}]
+
+
+def _parse_commit_item(line: str) -> dict | None:
+    match = re.match(r"^\[(?P<label>[^\]]+)\]\s+(?P<message>.*?)(?:\s+\(by\s+.*\))?$", line)
+    if match:
+        return {"label": match.group("label").strip(), "message": match.group("message").strip()}
+    if line.startswith("["):
+        return None
+    return {"label": "Change", "message": line}
+
+
+def _count_commit_labels(weeks: list[dict]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for section in weeks:
+        for item in section["items"]:
+            counts[item["label"]] = counts.get(item["label"], 0) + 1
+    return counts
+
+
+def _top_labels(items: list[dict]) -> list[str]:
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item["label"]] = counts.get(item["label"], 0) + 1
+    return [label.lower() for label, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:3]]
+
+
+def _summary_table(total_commits: int, type_counts: dict[str, int]) -> list[str]:
+    lines = ["### Summary", "", f"- Total commits analyzed: **{total_commits}**", "", "| Type | Count |", "|------|-------|"]
+    for label, count in sorted(type_counts.items(), key=lambda item: (-item[1], item[0])):
+        lines.append(f"| {label} | {count} |")
+    return lines
+
 
 # ─── Global Singleton ─────────────────────────────────────────────────────────
 gemini = GeminiClient()
