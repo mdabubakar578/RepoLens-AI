@@ -91,18 +91,27 @@ def get_analysis_by_slug(slug):
 
 def get_all_analyses(search="", page=1, per_page=12):
     offset = (page - 1) * per_page
+    order_clause = """
+        ORDER BY
+            CASE status
+                WHEN 'done' THEN 0
+                WHEN 'pending' THEN 1
+                ELSE 2
+            END,
+            created_at DESC
+    """
     with get_db() as conn:
         if search:
             pattern = f"%{search}%"
             rows = conn.execute(
-                "SELECT * FROM analyses WHERE repo_name LIKE ? OR repo_url LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                f"SELECT * FROM analyses WHERE repo_name LIKE ? OR repo_url LIKE ? {order_clause} LIMIT ? OFFSET ?",
                 (pattern, pattern, per_page, offset)).fetchall()
             total = conn.execute(
                 "SELECT COUNT(*) FROM analyses WHERE repo_name LIKE ? OR repo_url LIKE ?",
                 (pattern, pattern)).fetchone()[0]
         else:
             rows = conn.execute(
-                "SELECT * FROM analyses ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                f"SELECT * FROM analyses {order_clause} LIMIT ? OFFSET ?",
                 (per_page, offset)).fetchall()
             total = conn.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
         return [dict(r) for r in rows], total

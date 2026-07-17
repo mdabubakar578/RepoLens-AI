@@ -178,11 +178,12 @@ def _fetch_github_tags(owner: str, repo: str) -> dict[str, list[str]]:
         if sha and name: tag_map.setdefault(sha, []).append(name)
     return tag_map
 
-def _github_api_get(api_path: str):
+def _github_api_get(api_path: str, use_token: bool = True):
     api_url = f"{config.GITHUB_API_BASE_URL.rstrip('/')}{api_path}"
     headers = {"Accept": "application/vnd.github+json", "User-Agent": config.GITHUB_API_USER_AGENT, "X-GitHub-Api-Version": "2022-11-28"}
     token = config.GITHUB_API_TOKEN
-    if token and token not in ("", "YOUR_GITHUB_API_TOKEN_HERE"):
+    has_token = use_token and _has_configured_github_token(token)
+    if has_token:
         headers["Authorization"] = f"Bearer {token}"
     request = Request(api_url, headers=headers)
     try:
@@ -193,10 +194,26 @@ def _github_api_get(api_path: str):
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         details = _read_http_error(exc)
+        if exc.code == 401 and has_token:
+            logger.warning("GitHub token was rejected; retrying public request without Authorization header")
+            return _github_api_get(api_path, use_token=False)
         if exc.code == 403: raise RuntimeError("GitHub API rate limit reached. Add GITHUB_API_TOKEN to .env.") from exc
         if exc.code == 404: raise ValueError("Repository not found or not accessible.") from exc
         raise RuntimeError(f"GitHub API error ({exc.code}): {details}") from exc
     except URLError as exc: raise RuntimeError(f"Unable to reach GitHub API: {exc.reason}") from exc
+
+def _has_configured_github_token(token: str) -> bool:
+    if not token:
+        return False
+    token = token.strip()
+    placeholder_values = {
+        "",
+        "YOUR_GITHUB_API_TOKEN_HERE",
+        "your_github_token_here",
+        "your-token-here",
+        "github_token",
+    }
+    return token not in placeholder_values
 
 def _read_http_error(exc: HTTPError) -> str:
     try: return json.loads(exc.read().decode("utf-8")).get("message", exc.reason or "Unknown")
