@@ -113,3 +113,33 @@ def get_extended_data(analysis_id) -> dict:
             try: return json.loads(row[0])
             except Exception: pass
     return {}
+
+def recover_stale_analyses(minutes=10):
+    """
+    Finds and updates analyses that are stuck in a non-terminal state
+    (not 'done' or 'error') and are older than the specified minutes.
+    Returns a list of recovered tasks.
+    """
+    with get_db() as conn:
+        # SQLite CURRENT_TIMESTAMP is in UTC
+        rows = conn.execute(
+            """SELECT id, repo_name, created_at, status
+               FROM analyses
+               WHERE status NOT IN ('done', 'error')
+                 AND created_at < datetime('now', ?)""",
+            (f"-{minutes} minutes",)
+        ).fetchall()
+
+        recovered = [dict(r) for r in rows]
+
+        if recovered:
+            conn.execute(
+                """UPDATE analyses
+                   SET status = 'error',
+                       error_message = 'Task interrupted or server restarted'
+                   WHERE status NOT IN ('done', 'error')
+                     AND created_at < datetime('now', ?)""",
+                (f"-{minutes} minutes",)
+            )
+
+        return recovered

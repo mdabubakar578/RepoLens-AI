@@ -31,7 +31,7 @@
         </div>
       </div>
 
-      <div class="card card--glass hero-form">
+      <div class="card hero-form">
         <div class="hero-form__header">
           <div>
             <p class="hero-form__eyebrow">New analysis</p>
@@ -120,7 +120,7 @@
     </section>
 
     <section class="grid-3 mt-8 stagger-children">
-      <article class="card card--glass">
+      <article class="card">
         <p class="section-label">Workflow</p>
         <h3>From repo URL to narrative output</h3>
         <p>
@@ -128,7 +128,7 @@
           and render polished summaries that fit directly into team workflows.
         </p>
       </article>
-      <article class="card card--glass">
+      <article class="card">
         <p class="section-label">Signals</p>
         <h3>Features, bug fixes, refactors, and milestones</h3>
         <p>
@@ -136,7 +136,7 @@
           shaped it, and when notable releases landed.
         </p>
       </article>
-      <article class="card card--glass">
+      <article class="card">
         <p class="section-label">Impact</p>
         <h3>Less manual reporting, faster onboarding</h3>
         <p>
@@ -178,7 +178,7 @@
   </div>
 
   <div class="loading-overlay hidden" id="loading-overlay">
-    <span class="spinner loading-overlay__spinner"></span>
+    <div class="skeleton loading-overlay__spinner" style="border-radius: 50%"></div>
     <div class="loading-overlay__text">
       Extracting commit history and generating narratives.<br />
       This can take a few seconds for larger repositories.

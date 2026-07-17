@@ -32,7 +32,9 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
     """The main background task logic."""
     try:
         # 1. Fetch Commits
-        logger.info(f"Task {analysis_id}: Fetching commits...")
+        logger.info(f"Task {analysis_id}: [START] Beginning analysis pipeline.")
+        logger.info(f"Task {analysis_id}: Fetching commits from {input_mode}...")
+
         if input_mode == "url":
             commits = parse_from_url(input_data)
         elif input_mode == "file":
@@ -43,20 +45,30 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
             raise ValueError(f"Unknown input mode: {input_mode}")
 
         if not commits:
+            logger.error(f"Task {analysis_id}: No commits found.")
             database.set_error(analysis_id, "No commits found. Please check your input.")
             return
 
+        logger.info(f"Task {analysis_id}: Fetched {len(commits)} commits.")
+
         # 2. Group Commits
-        logger.info(f"Task {analysis_id}: Grouping {len(commits)} commits...")
+        logger.info(f"Task {analysis_id}: Grouping commits...")
         groups = group_commits(commits)
         commit_data_text = serialize_groups_for_prompt(groups)
-        
+        logger.info(f"Task {analysis_id}: Grouping complete.")
+
+        repo_metadata = {}
+        tech_data = {}
+        arch_data = {}
+
         if input_mode == "url" and "github.com" in input_data:
             try:
+                logger.info(f"Task {analysis_id}: Starting enhanced GitHub analysis.")
                 owner, repo = extract_owner_repo(input_data)
                 cache_key = f"{owner}/{repo}"
 
                 # Update DB with commits (so the UI has them even if AI fails)
+                logger.info(f"Task {analysis_id}: Saving intermediate commit data to database.")
                 with database.get_db() as conn:
                     conn.execute(
                         "UPDATE analyses SET raw_commits_json=?, grouped_commits_json=?, commit_count=? WHERE id=?",
@@ -64,9 +76,11 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                     )
 
                 # Metadata
+                logger.info(f"Task {analysis_id}: Fetching repo metadata...")
                 cached_meta = get_cached(cache_key, "_meta")
                 if cached_meta:
                     repo_metadata = cached_meta
+                    logger.info(f"Task {analysis_id}: Using cached metadata.")
                 else:
                     meta = fetch_repo_metadata(owner, repo)
                     repo_metadata = {
@@ -77,18 +91,24 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                         "size_kb": meta.size_kb, "open_issues": meta.open_issues,
                     }
                     set_cached(cache_key, repo_metadata, "_meta")
+                    logger.info(f"Task {analysis_id}: Fetched and cached metadata.")
 
                 # File Tree
+                logger.info(f"Task {analysis_id}: Fetching file tree...")
                 branch = (repo_metadata or {}).get("default_branch", "main")
                 cached_tree = get_cached(cache_key, "_tree")
                 if cached_tree:
                     file_tree = cached_tree
+                    logger.info(f"Task {analysis_id}: Using cached file tree.")
                 else:
                     file_tree = fetch_file_tree(owner, repo, branch)
-                    if file_tree: set_cached(cache_key, file_tree, "_tree")
+                    if file_tree:
+                        set_cached(cache_key, file_tree, "_tree")
+                        logger.info(f"Task {analysis_id}: Fetched and cached file tree.")
 
                 # Code Analysis
                 if file_tree:
+                    logger.info(f"Task {analysis_id}: Analyzing source code...")
                     key_file_paths = _select_key_files(file_tree)
                     file_contents = {}
                     for fp in key_file_paths[:15]:
@@ -97,11 +117,13 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
 
                     github_langs = (repo_metadata or {}).get("languages", {})
                     repo_analysis = analyze_repository(file_tree, file_contents, commits, github_langs)
-                    
-                    # 3b. Index for Semantic Q&A
+
+                    # Index for Semantic Q&A
+                    logger.info(f"Task {analysis_id}: Building RAG index...")
                     rag = RAGService()
                     rag.index_repository(str(analysis_id), file_contents)
-                    
+                    logger.info(f"Task {analysis_id}: RAG index complete.")
+
                     tech_data = {
                         "technologies": [{"name": t.name, "category": t.category, "confidence": t.confidence} for t in repo_analysis.technologies[:15]],
                         "dependencies": repo_analysis.dependencies,
@@ -113,6 +135,7 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                         "directory_summary": repo_analysis.directory_summary,
                     }
 
+                    logger.info(f"Task {analysis_id}: Analyzing architecture...")
                     arch_report = analyze_architecture(file_tree, file_contents)
                     arch_data = {
                         "patterns": arch_report.patterns,
@@ -121,30 +144,46 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                         "description": arch_report.description,
                         "insights": arch_report.insights,
                     }
+                    logger.info(f"Task {analysis_id}: Enhanced analysis complete.")
             except Exception as exc:
                 logger.warning(f"Task {analysis_id}: Enhanced analysis failed (non-fatal): {exc}")
 
         # Store extended data
         if repo_metadata or tech_data or arch_data:
+            logger.info(f"Task {analysis_id}: Saving extended data to database.")
             database.save_extended_data(analysis_id, {
                 "metadata": repo_metadata or {},
-                "technologies": tech_data,
-                "architecture": arch_data,
+                "technologies": tech_data or {},
+                "architecture": arch_data or {},
             })
 
         # 4. Generate AI Narratives
-        logger.info(f"Task {analysis_id}: Generating AI narratives...")
+        logger.info(f"Task {analysis_id}: Generating AI narratives (Gemini/Grok)...")
         # Get repo_name from DB
         analysis = database.get_analysis_by_id(analysis_id)
         repo_name = analysis.get("repo_name", "Repository") if analysis else "Repository"
-        
-        narratives = gemini.generate_all(commit_data_text, repo_name)
-        database.update_narratives(analysis_id, narratives)
-        logger.info(f"Task {analysis_id}: Complete.")
+
+        try:
+            import time
+            start_ai = time.time()
+            narratives = gemini.generate_all(commit_data_text, repo_name)
+            duration = time.time() - start_ai
+            logger.info(f"Task {analysis_id}: AI narratives generated successfully in {duration:.2f} seconds.")
+
+            logger.info(f"Task {analysis_id}: Updating database with narratives and marking status='done'.")
+            database.update_narratives(analysis_id, narratives)
+            logger.info(f"Task {analysis_id}: [COMPLETE] Analysis successfully finished.")
+        except Exception as ai_err:
+            logger.error(f"Task {analysis_id}: AI Narrative generation or DB update failed: {ai_err}")
+            database.set_error(analysis_id, f"AI generation failed: {str(ai_err)}")
 
     except Exception as e:
-        logger.error(f"Task {analysis_id}: Failed with error: {e}")
-        database.set_error(analysis_id, str(e))
+        logger.error(f"Task {analysis_id}: [CRITICAL FAILURE] Pipeline crashed: {e}")
+        try:
+            database.set_error(analysis_id, f"Pipeline error: {str(e)}")
+        except Exception as db_err:
+            logger.error(f"Task {analysis_id}: Failed to save error status to DB: {db_err}")
+
 
 def _select_key_files(file_tree: list[dict]) -> list[str]:
     priority_names = {
