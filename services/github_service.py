@@ -5,7 +5,7 @@ GitHub API interactions and git log parsing.
 Refactored from git_parser.py with metadata, file tree, and rate limit awareness.
 """
 from __future__ import annotations
-import json, logging, re, shutil, tempfile, base64
+import json, logging, re, shutil, tempfile, base64, os
 from dataclasses import dataclass, field
 from datetime import datetime
 from urllib.error import HTTPError, URLError
@@ -51,7 +51,13 @@ def parse_from_url(url: str) -> list[dict]:
     host = parsed.netloc.lower().replace("www.", "")
     if host == "github.com":
         owner, repo = _extract_github_repo(parsed.path)
-        return _fetch_github_commits(owner, repo)[:config.MAX_COMMITS_PER_ANALYSIS]
+        try:
+            return _fetch_github_commits(owner, repo)[:config.MAX_COMMITS_PER_ANALYSIS]
+        except Exception as exc:
+            logger.warning("GitHub commit API failed; trying git clone fallback: %s", exc)
+            if config.ENABLE_GIT_CLONE_FALLBACK and GIT_AVAILABLE:
+                return _parse_from_clone(url)
+            raise
     if config.ENABLE_GIT_CLONE_FALLBACK and GIT_AVAILABLE:
         return _parse_from_clone(url)
     raise RuntimeError("Only GitHub URL analysis is available without Git clone support.")
@@ -221,6 +227,7 @@ def _read_http_error(exc: HTTPError) -> str:
 
 # ── Clone fallback ──
 def _parse_from_clone(url: str) -> list[dict]:
+    os.makedirs(config.TEMP_CLONE_DIR, exist_ok=True)
     clone_dir = tempfile.mkdtemp(dir=config.TEMP_CLONE_DIR)
     try:
         repo = gitpython.Repo.clone_from(url, clone_dir, depth=config.CLONE_DEPTH, no_single_branch=True)

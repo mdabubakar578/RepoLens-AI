@@ -57,6 +57,13 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
         commit_data_text = serialize_groups_for_prompt(groups)
         logger.info(f"Task {analysis_id}: Grouping complete.")
 
+        logger.info(f"Task {analysis_id}: Saving commit data to database.")
+        with database.get_db() as conn:
+            conn.execute(
+                "UPDATE analyses SET raw_commits_json=?, grouped_commits_json=?, commit_count=? WHERE id=?",
+                (json.dumps(commits, default=str), json.dumps(groups, default=str), len(commits), analysis_id)
+            )
+
         repo_metadata = {}
         tech_data = {}
         arch_data = {}
@@ -66,14 +73,6 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                 logger.info(f"Task {analysis_id}: Starting enhanced GitHub analysis.")
                 owner, repo = extract_owner_repo(input_data)
                 cache_key = f"{owner}/{repo}"
-
-                # Update DB with commits (so the UI has them even if AI fails)
-                logger.info(f"Task {analysis_id}: Saving intermediate commit data to database.")
-                with database.get_db() as conn:
-                    conn.execute(
-                        "UPDATE analyses SET raw_commits_json=?, grouped_commits_json=?, commit_count=? WHERE id=?",
-                        (json.dumps(commits, default=str), json.dumps(groups, default=str), len(commits), analysis_id)
-                    )
 
                 # Metadata
                 logger.info(f"Task {analysis_id}: Fetching repo metadata...")
