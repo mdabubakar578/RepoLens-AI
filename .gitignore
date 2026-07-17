@@ -17,6 +17,13 @@ __pycache__/
 *$py.class
 
 # Databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
 data/*.db
 data/*.sqlite
 data/*.sqlite3

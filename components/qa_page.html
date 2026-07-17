@@ -128,43 +128,54 @@ function addMessage(type, content, id, sources = [], warning = null) {
   div.style.cssText = 'margin-bottom:var(--space-4);animation:fadeInUp 0.3s ease';
 
   if (type === 'user') {
-    div.innerHTML = `<div class="card" style="background:rgba(124,58,237,0.1);border-color:rgba(124,58,237,0.3);padding:var(--space-4)">
-      <p style="margin:0;color:var(--text-primary);font-weight:500">🧑 ${escapeHtml(content)}</p></div>`;
+    div.style.cssText += ';display:flex;justify-content:flex-end;';
+    div.innerHTML = `<div style="background:var(--panel-2);border:1px solid var(--border);border-radius:var(--radius-md) var(--radius-md) 0 var(--radius-md);padding:var(--space-3) var(--space-4);max-width:80%">
+      <p style="margin:0;color:var(--text);font-weight:400;font-size:0.95rem">${escapeHtml(content)}</p></div>`;
   } else if (type === 'loading') {
-    div.innerHTML = `<div class="card" style="padding:var(--space-4)">
-      <div class="flex items-center gap-3"><span class="spinner"></span><span class="text-muted">${content}</span></div></div>`;
+    div.innerHTML = `<div style="max-width:80%">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="skeleton" style="width: 24px; height: 24px; border-radius: 50%"></div>
+        <div class="skeleton" style="height: 16px; width: 150px; border-radius: 4px;"></div>
+      </div>
+      <div class="skeleton" style="height: 60px; width: 100%; border-radius: var(--radius-sm); max-width: 600px;"></div>
+    </div>`;
   } else if (type === 'error') {
-    div.innerHTML = `<div class="alert alert--error">❌ ${escapeHtml(content)}</div>`;
+    div.innerHTML = `<div class="alert alert--error" style="max-width:80%">❌ ${escapeHtml(content)}</div>`;
   } else {
     let sourceHtml = '';
     if (sources && sources.length > 0) {
-      sourceHtml = `<details style="margin-top:var(--space-4);background:var(--bg-input);border-radius:var(--radius-md);padding:var(--space-2) var(--space-4)">
-        <summary style="cursor:pointer;color:var(--text-accent);font-size:0.9rem;font-weight:500;user-select:none;outline:none">
-          🔍 View retrieved evidence (${sources.length} sources)
+      sourceHtml = `<details style="margin-top:var(--space-6);background:var(--panel-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:var(--space-3) var(--space-4);max-width:800px">
+        <summary style="cursor:pointer;color:var(--muted);font-size:0.85rem;font-weight:500;user-select:none;outline:none;display:flex;align-items:center;gap:6px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          View retrieved evidence (${sources.length} sources)
         </summary>
-        <div style="margin-top:var(--space-3);display:flex;flex-direction:column;gap:var(--space-2)">`;
+        <div style="margin-top:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)">`;
       sources.forEach(src => {
-        let badgeColor = src.relevance === 'high' ? 'var(--accent-blue)' : 'var(--text-muted)';
+        let badgeColor = src.relevance === 'high' ? 'var(--text)' : 'var(--muted)';
         sourceHtml += `
-          <div style="font-size:0.8rem;display:flex;justify-content:space-between;align-items:center;padding-bottom:var(--space-2);border-bottom:1px solid var(--border)">
-            <code style="color:var(--text-primary);background:none;padding:0">${escapeHtml(src.file_path)} (L${src.start_line}-${src.end_line})</code>
-            <span style="color:${badgeColor};font-weight:600" title="Retrieval Confidence Score">cf: ${Math.round(src.score * 100)}%</span>
+          <div style="font-size:0.8rem;display:flex;justify-content:space-between;align-items:center;padding-bottom:var(--space-3);border-bottom:1px solid var(--border)">
+            <code style="color:var(--text);background:none;padding:0">${escapeHtml(src.file_path)} (L${src.start_line}-${src.end_line})</code>
+            <span style="color:${badgeColor};font-family:var(--font-mono);font-size:0.75rem">cf: ${Math.round(src.score * 100)}%</span>
           </div>`;
       });
       sourceHtml += `</div></details>`;
     } else {
-      sourceHtml = `<div style="margin-top:var(--space-4);background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:0.85rem;color:var(--text-muted);display:flex;align-items:center;gap:8px">
-        <span style="opacity:0.7">🔍</span> <i>No semantic evidence available for this response.</i>
+      sourceHtml = `<div style="margin-top:var(--space-4);max-width:800px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:var(--space-3) var(--space-4);font-size:0.8rem;color:var(--muted);display:flex;align-items:center;gap:8px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        <i>No semantic evidence available.</i>
       </div>`;
     }
 
     let warningHtml = '';
     if (warning) {
-      warningHtml = `<div class="alert alert--warning" style="margin-bottom:var(--space-4);font-size:0.85rem">⚠️ ${escapeHtml(warning)}</div>`;
+      warningHtml = `<div class="alert alert--warning" style="margin-bottom:var(--space-4);font-size:0.85rem;max-width:800px">⚠️ ${escapeHtml(warning)}</div>`;
     }
 
-    div.innerHTML = `<div class="card" style="padding:var(--space-6)">
-      <p style="margin:0 0 var(--space-2) 0;font-size:0.8rem;color:var(--text-muted)">🤖 RepoLens AI</p>
+    div.innerHTML = `<div class="qa-answer" style="width: 100%;">
+      <div class="flex items-center gap-2" style="margin-bottom:var(--space-2)">
+        <div style="width:24px;height:24px;border-radius:50%;background:var(--text);display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg></div>
+        <span style="font-size:0.85rem;color:var(--text);font-weight:600">RepoLens AI</span>
+      </div>
       ${warningHtml}
       <div class="markdown-body">${simpleMarkdown(content)}</div>
       ${sourceHtml}

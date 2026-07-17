@@ -1,45 +1,152 @@
-# RepoLens AI 🔍
+# RepoLens AI
 
-AI-powered GitHub repository analysis and insights.
+RepoLens AI is a Flask-based repository analysis app that helps developers understand a GitHub project from its commit history, file structure, source code, and generated documentation views.
 
-RepoLens AI is a web-based developer productivity tool designed to transform unstructured Git commit data into structured project stories, release notes, and contribution insights using AI.
+The app accepts a GitHub repository URL, pasted git log, or uploaded log file, then produces repository summaries, release-style narratives, architecture insights, risk observations, and a source-grounded Q&A experience.
 
-## ✨ Features
+## Features
 
-- **Automated Commit Extraction**: Fetch commits directly from GitHub URLs or upload/paste git logs.
-  - To generate a compatible log file, run:
-    `git log --pretty=format:"%H|%s|%an|%ae|%ad|%D" --date=iso > my-log.txt`
-- **AI-Driven Analysis**: Intelligently group commits into features, bug fixes, refactors, and more.
-- **Commit Context Understanding**: Raw messages like "Added login" are converted into professional, achievement-oriented summaries using Grok AI.
-- **Team Velocity Timeline**: Visual bar charts showing commit frequency and work mix over time (powered by Chart.js).
-- **Shareable Story Cards**: Generate beautiful, embeddable HTML cards summarizing your repository's journey.
-- **CLI Tool**: Run analysis directly from your terminal with `python cli.py .`.
-- **Noisy Commit Filter**: Auto-detect and collapse "noise" commits (fix, wip, asdf) with a single toggle.
-- **Narrative Generation**:
-  - 📝 **Release Notes**: Professional summaries for users.
-  - 🤝 **Standup Reports**: Team-focused weekly updates.
-  - 🚀 **Onboarding Guides**: Chronological project evolution stories.
-  - 💼 **Portfolio READMEs**: Impressive project descriptions for developers.
-- **Contributor Insights**: Visualize top contributors, work mix, and project milestones.
-- **Shareable Results**: Generate public links to share your project's story.
+- **Repository ingestion**
+  - Fetches commit history from GitHub URLs.
+  - Supports pasted or uploaded git logs.
+  - Stores analysis results in SQLite for history and sharing.
 
-## 🛠️ Architecture
+- **Repository Q&A**
+  - Indexes selected source files for retrieval.
+  - Retrieves relevant code chunks for a user question.
+  - Uses Gemini to answer with repository context.
+  - Returns sources with file paths, line ranges, relevance scores, and fallback warnings.
 
-The application follows a simplified, developer-friendly architecture:
-- **Single-File Logic**: Each page is implemented in a single Python file containing its routing and logic.
-- **Centralized Config**: All global settings, API keys, and database paths are managed in `config.py`.
-- **Lightweight Backend**: Powered by Flask and SQLite for zero-config setup.
-- **Modern UI**: Dark-themed, mobile-responsive glassmorphism design.
+- **RAG indexing**
+  - Chunks Python files with AST function/class boundaries.
+  - Preserves module-level imports and setup code.
+  - Uses sliding-window chunking for other file types.
+  - Supports FAISS and sentence-transformer semantic search when available.
+  - Falls back to keyword search when vector search is unavailable.
 
-##  Project Structure
+- **Repository analysis**
+  - Detects technologies, dependencies, language distribution, and entry points.
+  - Summarizes directory structure.
+  - Identifies TODO/FIXME markers.
+  - Scores commit quality.
+  - Detects high-churn files and risk signals.
 
-- `app.py`: Application entry point and factory.
-- `config.py`: Central configuration file.
-- `pages/`: Page-specific logic and routing.
-- `components/`: UI templates and reusable fragments.
-- `static/`: Global styles and assets.
-- `services/`: Core business logic (AI, Git, Exporting).
-- `data/`: Local SQLite database storage.
+- **Generated views**
+  - Release notes.
+  - Standup summaries.
+  - Onboarding guides.
+  - Portfolio/project summaries.
+  - Architecture report.
+  - Risk report.
+  - Shareable story pages and cards.
+
+## How It Works
+
+```text
+Repository URL or git log
+        |
+        v
+Commit parsing and grouping
+        |
+        v
+GitHub metadata, file tree, and selected source fetch
+        |
+        v
+Technology, architecture, risk, and commit analysis
+        |
+        v
+RAG chunking and index persistence
+        |
+        v
+Gemini narrative generation and repository Q&A
+        |
+        v
+Flask pages for results, architecture, risk, history, share, and Q&A
+```
+
+## Project Structure
+
+- `app.py` - Flask application factory, blueprint registration, startup setup.
+- `database.py` - SQLite connection, migrations, CRUD helpers, stale task recovery.
+- `pages/` - Flask route handlers for home, analysis, history, detail/share, architecture, risk, and Q&A.
+- `components/` - Jinja templates and reusable UI fragments.
+- `services/rag_service.py` - Code chunking, FAISS/keyword retrieval, RAG context generation.
+- `services/gemini_client.py` - Gemini client, prompt templates, retry/error/timeout handling.
+- `services/repo_analyzer.py` - Technology detection, dependency parsing, risk signals, commit quality, hotspots.
+- `services/architecture_analyzer.py` - Architecture pattern detection, module classification, API endpoint discovery.
+- `services/github_service.py` - GitHub repository metadata, tree, and file-content access.
+- `services/analysis_task.py` - End-to-end analysis pipeline.
+- `services/task_recovery.py` - Marks stale interrupted analyses as failed on restart.
+- `static/styles.css` - Global UI theme and component styles.
+
+## Tech Stack
+
+- **Backend:** Python, Flask
+- **Database:** SQLite
+- **LLM provider:** Google Gemini through `google-genai`
+- **Retrieval:** FAISS, sentence-transformers, AST parsing, keyword fallback
+- **Frontend:** Jinja templates, HTML, CSS, JavaScript
+- **Runtime:** Gunicorn-compatible Flask app
+
+## Setup
+
+1. Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+2. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Create local environment config:
+
+```bash
+cp .env.example .env
+```
+
+4. Add a Gemini API key:
+
+```bash
+GEMINI_API_KEY=your_api_key_here
+```
+
+5. Run the app:
+
+```bash
+flask --app app run --debug
+```
+
+## CLI Usage
+
+Run analysis from the terminal:
+
+```bash
+python cli.py .
+```
+
+Generate a compatible git log file:
+
+```bash
+git log --pretty=format:"%H|%s|%an|%ae|%ad|%D" --date=iso > my-log.txt
+```
+
+## Reliability Notes
+
+- If Gemini is not configured, narrative features use demo/fallback behavior where available.
+- Repository Q&A can fall back to retrieval-only responses when generation fails.
+- API calls include timeout handling to avoid long hangs.
+- Stale analyses are marked as failed after restart so the UI does not show permanent processing states.
+- Local runtime files such as SQLite databases and WAL/SHM files are ignored by Git.
+
+## Technical Notes
+
+For more implementation detail, see [docs/technical-overview.md](docs/technical-overview.md).
 
 ---
-Built with ❤️ for developers who value clear documentation and project understanding.
+
+RepoLens AI is built for practical repository understanding: turning commit history, project structure, and source code into useful engineering views.

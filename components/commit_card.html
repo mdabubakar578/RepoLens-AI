@@ -64,7 +64,7 @@
       <a href="/" class="btn btn--ghost btn--sm">Try Again</a>
     {% else %}
       <span class="flex items-center gap-2 text-sm text-muted">
-        <span class="spinner" style="width:14px;height:14px"></span>
+        <div class="skeleton" style="width:14px;height:14px;border-radius:50%"></div>
         Processing…
       </span>
     {% endif %}
@@ -76,25 +76,25 @@
 .commit-card::before {
   content: '';
   position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  background: var(--gradient-brand);
+  top: 0; left: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent);
   opacity: 0;
   transition: opacity var(--transition-normal);
 }
 .commit-card:hover::before { opacity: 1; }
 .commit-card__icon {
   width: 40px; height: 40px;
-  background: rgba(124,58,237,0.15);
-  border: 1px solid rgba(124,58,237,0.3);
-  border-radius: var(--radius-md);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   display: flex; align-items: center; justify-content: center;
   font-size: 1.2rem; flex-shrink: 0;
 }
 .commit-card__name {
   font-size: 0.95rem;
-  font-weight: 600;
+  font-weight: 500;
   margin: 0;
-  color: var(--text-primary);
+  color: var(--text);
 }
 </style>

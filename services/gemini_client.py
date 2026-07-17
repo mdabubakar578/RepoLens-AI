@@ -225,12 +225,16 @@ class GeminiClient:
 
         full_prompt = f"System: {system}\n\nUser: {prompt}" if system else prompt
 
+        import concurrent.futures
         for attempt in range(1, 4):
             try:
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=full_prompt
-                )
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(
+                        self.client.models.generate_content,
+                        model=self.model_name,
+                        contents=full_prompt
+                    )
+                    response = future.result(timeout=60)
 
                 if not response or not hasattr(response, 'text'):
                     logger.warning("Empty or malformed response body from Gemini.")
@@ -251,6 +255,11 @@ class GeminiClient:
                     success=True
                 )
 
+            except concurrent.futures.TimeoutError:
+                logger.error("Gemini call timed out (attempt %d/3)", attempt)
+                if attempt == 3:
+                    return GeminiResponse(content="", success=False, error="API timeout")
+                time.sleep(2)
             except ResourceExhausted as exc:
                 wait = min(2 ** attempt * 2, 30)
                 logger.warning("Gemini Rate limited/Quota Exhausted (attempt %d/3): %s", attempt, exc)

@@ -31,6 +31,10 @@ def create_app():
 
     database.init_db()
 
+    # Recover stale tasks from previous crashes
+    from services.task_recovery import recover_stale_tasks
+    recover_stale_tasks()
+
     # Ensure cache and temp directories exist
     os.makedirs(config.CACHE_DIR, exist_ok=True)
     os.makedirs(config.TEMP_CLONE_DIR, exist_ok=True)
