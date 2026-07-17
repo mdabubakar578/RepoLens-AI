@@ -123,7 +123,7 @@ flask --app app run --debug
 
 ## Live Demo
 
-A hosted demo link can be added here after deployment.
+Try RepoLens AI: https://repolens-ai-9fwr.onrender.com/
 
 ## CLI Usage
 
