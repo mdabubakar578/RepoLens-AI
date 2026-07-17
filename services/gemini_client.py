@@ -266,6 +266,12 @@ class GeminiClient:
                 err_msg = str(exc).lower()
                 status_code = getattr(exc, "code", None)
                 last_error = str(exc)[:300]
+                if status_code == 400 and "api key" in err_msg and ("invalid" in err_msg or "not valid" in err_msg):
+                    # Stop repeated calls for every narrative/Q&A request. A
+                    # service restart after correcting the secret re-enables it.
+                    self._configured = False
+                    logger.error("Gemini authentication failed; switching to retrieval/local fallback")
+                    return GeminiResponse(content="", success=False, error="Gemini authentication unavailable")
                 if status_code == 404 or "not found" in err_msg or "not supported" in err_msg:
                     replacement = self._find_supported_text_model()
                     if replacement and replacement != self.model_name:
