@@ -11,4 +11,4 @@ services:
       - key: LOG_LEVEL
         value: INFO
       - key: GEMINI_MODEL
-        value: gemini-2.0-flash
+        value: gemini-2.5-flash
