@@ -172,7 +172,7 @@ python -m coverage report --fail-under=70
 python -m benchmarks.runner --check
 ```
 
-The recorded suite has 96 passing tests, 77% whole-project coverage, and 85% combined coverage for the five core agent modules. The controlled offline benchmark records 100% File Recall@5 versus 77.8% for a naive baseline on the questions used while tuning. On a held-out question set the naive baseline also reaches 100% Recall@5, so that advantage does not reproduce out of sample; the measured gain there is in ranking quality (MRR 0.80 versus 0.65). These figures are regression evidence for the included corpus, not universal accuracy.
+The recorded suite has 97 passing tests, 77% whole-project coverage, and 85% combined coverage for the five core agent modules. The controlled offline benchmark records 100% File Recall@5 versus 77.8% for a naive baseline on the questions used while tuning. On a held-out question set the naive baseline also reaches 100% Recall@5, so that advantage does not reproduce out of sample; the measured gain there is in ranking quality (MRR 0.80 versus 0.65). These figures are regression evidence for the included corpus, not universal accuracy.
 
 ## Final Submission Package
 

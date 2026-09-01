@@ -192,20 +192,25 @@ document.addEventListener('DOMContentLoaded', () => {
           {% endif %}
         </article>
 
-        <article class="card">
-          <div class="flex items-center justify-between mb-4" style="flex-wrap:wrap;gap:12px">
-            <div>
-              <p class="section-label">Timeline</p>
-              <h2 style="font-size:1.2rem">Grouped commit history</h2>
-            </div>
-            <div class="flex items-center gap-4">
-              <div class="flex items-center gap-2">
-                <input type="checkbox" id="toggle-noise" data-on-change="toggleNoise" checked>
-                <label for="toggle-noise" class="text-sm text-muted">Hide noise</label>
-              </div>
-              <span class="text-sm text-muted">{{ groups|length }} groups</span>
-            </div>
-          </div>
+      </div>
+
+      <div class="result-main">
+        {% include "output_panel.html" %}
+      </div>
+    </section>
+
+    <details class="card mt-8" id="commit-history">
+      <summary style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <span>
+          <span class="section-label">Timeline</span>
+          <span style="display:block;font-size:1.2rem;font-weight:600">Grouped commit history</span>
+        </span>
+        <span class="text-sm text-muted">{{ groups|length }} groups · {{ analysis.commit_count }} commits</span>
+      </summary>
+      <div class="flex items-center gap-2 mt-4 mb-4">
+        <input type="checkbox" id="toggle-noise" data-on-change="toggleNoise" checked>
+        <label for="toggle-noise" class="text-sm text-muted">Hide noise</label>
+      </div>
 
           {% if groups %}
           <div class="timeline">
@@ -257,13 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
           {% else %}
           <div class="alert alert--warning">No grouped commits were stored for this analysis.</div>
           {% endif %}
-        </article>
-      </div>
-
-      <div class="result-main">
-        {% include "output_panel.html" %}
-      </div>
-    </section>
+    </details>
   </div>
 </section>
 {% endblock %}

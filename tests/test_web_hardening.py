@@ -185,3 +185,28 @@ def test_result_view_falls_back_to_the_default_format(app, monkeypatch):
     ok = app.test_client().get("/result/1?fmt=not-a-format")
 
     assert ok.status_code == 200
+
+
+def test_results_page_leads_with_the_narrative(app, monkeypatch):
+    """The commit list was 59% of the page and preceded the generated output."""
+    monkeypatch.setattr(
+        database,
+        "get_analysis_by_id",
+        lambda _id: {
+            "id": 1,
+            "slug": "s",
+            "repo_name": "owner/repo",
+            "status": "done",
+            "commit_count": 2,
+            "grouped_commits_json": '[{"label":"Week","commits":[],"commit_count":0,'
+            '"type_counts":{},"milestones":[],"week_key":"2026-W01",'
+            '"is_milestone_week":false,"date_from":"","date_to":""}]',
+        },
+    )
+    monkeypatch.setattr(database, "get_extended_data", lambda _id: {})
+
+    body = app.test_client().get("/result/1").get_data(as_text=True)
+
+    assert body.index("output-panel") < body.index('id="commit-history"')
+    # Collapsed by default: <details> carries no open attribute.
+    assert '<details class="card mt-8" id="commit-history">' in body

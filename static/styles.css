@@ -1022,6 +1022,21 @@ code, pre {
     grid-template-columns: 1fr;
   }
 
+  /* Stacked, the sidebar would otherwise push the generated narrative below
+     the chart and contributor lists. The narrative is the result. */
+  .result-grid .result-main {
+    order: -1;
+  }
+
+  /* Repository names and clone URLs are long unbroken strings, so the hero
+     forced the whole page wider than the viewport and clipped its own title. */
+  .result-hero__copy,
+  .result-hero__copy h1,
+  .result-hero__subtitle {
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+
   .result-hero,
   .history-header,
   .workflow-card__header {
