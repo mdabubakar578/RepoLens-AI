@@ -182,7 +182,7 @@ def main():
     )
     narrative_parser.add_argument(
         "--format",
-        choices=["release", "standup", "onboarding", "portfolio"],
+        choices=[key for key, _ in config.NARRATIVE_FORMATS],
         default="release",
         help="Narrative format (default: release)",
     )

@@ -136,11 +136,14 @@ SKIP_EXTENSIONS = {
 CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", str(24 * 3600)))  # 24h
 
 # ─── Narrative Formats ───────────────────────────────────────────────────────
+# Two formats, not four. Measured on identical commit data, the removed
+# "standup" and "portfolio" outputs overlapped release by 53 and 58 percent of
+# content words and reused its sections verbatim, so they restated the same
+# facts in a different voice. Each format also costs one model request per
+# analysis, which matters on a quota-limited key.
 NARRATIVE_FORMATS = [
     ("release", "Release Notes"),
-    ("standup", "Standup Summary"),
     ("onboarding", "Onboarding Story"),
-    ("portfolio", "Portfolio README"),
 ]
 DEFAULT_NARRATIVE_FORMAT = "release"
 

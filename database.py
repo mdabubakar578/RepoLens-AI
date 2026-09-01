@@ -8,7 +8,7 @@ import json
 import os
 import sqlite3
 
-from config import DATABASE_PATH, DB_TIMEOUT_SECONDS
+from config import DATABASE_PATH, DB_TIMEOUT_SECONDS, NARRATIVE_FORMATS
 
 
 @contextlib.contextmanager
@@ -94,17 +94,20 @@ def save_analysis(
 
 
 def update_narratives(analysis_id, narratives: dict):
+    """Persist the narratives for whichever formats are configured.
+
+    Driven by NARRATIVE_FORMATS so adding or removing a format cannot leave
+    this statement out of step with the rest of the application. Retired
+    columns are left in place so existing rows keep their history.
+    """
+    keys = [key for key, _ in NARRATIVE_FORMATS if key.isidentifier()]
+    assignments = ", ".join(f"narrative_{key}=?" for key in keys)
+    values = [narratives.get(key, "") for key in keys]
     with get_db() as conn:
         conn.execute(
-            """UPDATE analyses SET narrative_release=?, narrative_standup=?,
-               narrative_onboarding=?, narrative_portfolio=?, status='done', progress=100, stage='Complete' WHERE id=?""",
-            (
-                narratives.get("release", ""),
-                narratives.get("standup", ""),
-                narratives.get("onboarding", ""),
-                narratives.get("portfolio", ""),
-                analysis_id,
-            ),
+            f"UPDATE analyses SET {assignments}, status='done', progress=100, "
+            "stage='Complete' WHERE id=?",
+            (*values, analysis_id),
         )
 
 

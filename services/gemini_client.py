@@ -164,7 +164,7 @@ class GeminiClient:
     # ── Public API ────────────────────────────────────────────────────────────
     def generate_all(self, commit_data_text: str, repo_name: str = "") -> dict[str, str]:
         """Generate independent formats concurrently with deterministic fallbacks."""
-        formats = ("release", "standup", "onboarding", "portfolio")
+        formats = tuple(key for key, _ in config.NARRATIVE_FORMATS)
         if not self.is_available():
             logger.info("Gemini unavailable; using local narrative generation")
             return _generate_local_narratives(commit_data_text, repo_name)
@@ -347,7 +347,7 @@ class GeminiClient:
 def _generate_local_narratives(commit_data_text: str, repo_name: str = "") -> dict[str, str]:
     return {
         fmt: _generate_local_narrative(fmt, commit_data_text, repo_name)
-        for fmt in ["release", "standup", "onboarding", "portfolio"]
+        for fmt, _ in config.NARRATIVE_FORMATS
     }
 
 
@@ -382,60 +382,27 @@ def _generate_local_narrative(fmt: str, commit_data_text: str, repo_name: str = 
         lines.extend(_summary_table(total_commits, type_counts))
         return "\n".join(lines).strip()
 
-    if fmt == "standup":
-        lines = [f"# Standup Summary - {repo_title}", ""]
-        for section in weeks:
-            labels = _top_labels(section["items"])
-            focus = ", ".join(labels) if labels else "general maintenance"
-            examples = "; ".join(item["message"] for item in section["items"][:3])
-            lines.append(f"## {section['title']}")
-            lines.append(f"This period focused on {focus}. Key changes included: {examples}.")
-            lines.append("")
-        return "\n".join(lines).strip()
-
-    if fmt == "onboarding":
-        lines = [
-            f"# Project History & Onboarding Guide - {repo_title}",
-            "",
-            f"This project has {total_commits} analyzed commits across {len(weeks)} activity group(s).",
-            "The commit history shows how the codebase evolved through features, fixes, refactors, documentation, and operational work.",
-            "",
-            "## Recent Evolution",
-        ]
-        for section in weeks:
-            lines.append(
-                f"- **{section['title']}**: "
-                + "; ".join(item["message"] for item in section["items"][:4])
-            )
-        lines.extend(
-            [
-                "",
-                "## Suggested First Read",
-                "Start with the newest activity group, then review the generated architecture and risk pages for structure, hotspots, and process quality.",
-            ]
-        )
-        return "\n".join(lines).strip()
-
+    # Onboarding is the fallback so an unrecognised format still returns prose.
     lines = [
-        f"# {repo_title}",
+        f"# Project History & Onboarding Guide - {repo_title}",
         "",
-        f"RepoLens AI analyzed {total_commits} commits and grouped the work into readable project activity.",
+        f"This project has {total_commits} analyzed commits across {len(weeks)} activity group(s).",
+        "The commit history shows how the codebase evolved through features, fixes, refactors, documentation, and operational work.",
         "",
-        "## Development Signals",
+        "## Recent Evolution",
     ]
-    for label, count in sorted(type_counts.items(), key=lambda item: (-item[1], item[0])):
-        lines.append(f"- **{label}:** {count} commit(s)")
-    lines.extend(
-        [
-            "",
-            "## Recent Work",
-        ]
-    )
     for section in weeks:
         lines.append(
             f"- **{section['title']}**: "
             + "; ".join(item["message"] for item in section["items"][:4])
         )
+    lines.extend(
+        [
+            "",
+            "## Suggested First Read",
+            "Start with the newest activity group, then review the generated architecture and risk pages for structure, hotspots, and process quality.",
+        ]
+    )
     return "\n".join(lines).strip()
 
 

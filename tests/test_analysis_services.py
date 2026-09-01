@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import config
 from pages.analyze import _markdown_to_html, _prepare_chart_data
+from services.ai_prompts import NARRATIVE_PROMPTS
 from services.architecture_analyzer import analyze_architecture
 from services.cache_service import clear_all, get_cached, invalidate, set_cached
 from services.commit_classifier import (
@@ -230,9 +231,20 @@ def test_local_narratives_cover_every_output_format():
 
     narratives = _generate_local_narratives(commit_text, "owner/repo")
 
-    assert set(narratives) == {"release", "standup", "onboarding", "portfolio"}
+    # Follows the configured formats, so trimming or adding one cannot leave
+    # the local fallback generating output the interface will never show.
+    assert set(narratives) == {key for key, _ in config.NARRATIVE_FORMATS}
     assert all("owner/repo" in narrative for narrative in narratives.values())
     assert "Total commits analyzed: **2**" in narratives["release"]
+
+
+def test_narrative_formats_are_limited_to_distinct_outputs():
+    """Four formats restated the same commits; two remain with distinct shapes."""
+    keys = [key for key, _ in config.NARRATIVE_FORMATS]
+
+    assert keys == ["release", "onboarding"]
+    assert config.DEFAULT_NARRATIVE_FORMAT in keys
+    assert set(NARRATIVE_PROMPTS) == set(keys)
 
 
 def test_chart_data_and_markdown_rendering():
