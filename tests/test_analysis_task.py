@@ -17,7 +17,7 @@ def test_pipeline_failure_stores_safe_user_message(monkeypatch):
         lambda analysis_id, message: stored_errors.append((analysis_id, message)),
     )
 
-    analysis_task._run_analysis(42, "paste", "invalid", "release")
+    analysis_task._run_analysis(42, "paste", "invalid")
 
     assert stored_errors == [
         (
@@ -68,7 +68,7 @@ def test_missing_commits_reports_actionable_message(monkeypatch):
         analysis_task.database, "set_error", lambda _id, message: errors.append(message)
     )
 
-    analysis_task._run_analysis(1, "paste", "nothing", "release")
+    analysis_task._run_analysis(1, "paste", "nothing")
 
     assert errors == ["No commits found. Please check your input."]
 
@@ -110,7 +110,7 @@ def test_archive_fallback_supplies_sources_when_tree_is_unavailable(monkeypatch)
     )
     monkeypatch.setattr(analysis_task.gemini, "generate_all", lambda text, name: {"release": "ok"})
 
-    analysis_task._run_analysis(7, "url", "https://github.com/owner/repo", "release")
+    analysis_task._run_analysis(7, "url", "https://github.com/owner/repo")
 
     assert archive_calls == [("owner", "repo", "main")]
     assert saved["technologies"]["source_mode"] == "github-archive"
@@ -132,7 +132,7 @@ def test_narrative_failure_is_reported_without_leaking_detail(monkeypatch):
 
     monkeypatch.setattr(analysis_task.gemini, "generate_all", boom)
 
-    analysis_task._run_analysis(9, "paste", "abc def", "release")
+    analysis_task._run_analysis(9, "paste", "abc def")
 
     assert errors == ["Repository summaries could not be completed. Please retry."]
     assert all("secret-api-detail" not in message for message in errors)

@@ -44,7 +44,7 @@ def _run_and_release(*args) -> None:
         _ANALYSIS_SLOTS.release()
 
 
-def start_background_analysis(analysis_id: int, input_mode: str, input_data: str, format_pref: str):
+def start_background_analysis(analysis_id: int, input_mode: str, input_data: str):
     """Submit analysis to a bounded worker pool.
 
     Bounded workers prevent a traffic spike from creating an unbounded number
@@ -53,10 +53,10 @@ def start_background_analysis(analysis_id: int, input_mode: str, input_data: str
     if not _ANALYSIS_SLOTS.acquire(blocking=False):
         database.set_error(analysis_id, "Analysis queue is full. Please retry shortly.")
         return
-    _ANALYSIS_POOL.submit(_run_and_release, analysis_id, input_mode, input_data, format_pref)
+    _ANALYSIS_POOL.submit(_run_and_release, analysis_id, input_mode, input_data)
 
 
-def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pref: str):
+def _run_analysis(analysis_id: int, input_mode: str, input_data: str):
     """The main background task logic."""
     try:
         # 1. Fetch Commits

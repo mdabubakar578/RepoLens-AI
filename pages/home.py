@@ -31,10 +31,6 @@ def index():
 @home_bp.post("/analyze")
 def analyze():
     input_mode = request.form.get("input_mode", "url").strip()
-    format_pref = request.form.get("format_pref", config.DEFAULT_NARRATIVE_FORMAT)
-    allowed_formats = {key for key, _ in config.NARRATIVE_FORMATS}
-    if format_pref not in allowed_formats:
-        format_pref = config.DEFAULT_NARRATIVE_FORMAT
 
     repo_url = ""
     repo_name = "Repository"
@@ -95,10 +91,10 @@ def analyze():
     )
 
     # Start background task
-    start_background_analysis(analysis_id, input_mode, input_data, format_pref)
+    start_background_analysis(analysis_id, input_mode, input_data)
 
     # Redirect to loading page
-    return redirect(url_for("home.loading", analysis_id=analysis_id, fmt=format_pref))
+    return redirect(url_for("home.loading", analysis_id=analysis_id))
 
 
 @home_bp.get("/loading/<int:analysis_id>")

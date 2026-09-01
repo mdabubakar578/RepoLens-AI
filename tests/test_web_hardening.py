@@ -150,14 +150,13 @@ def test_server_error_page_does_not_disclose_exception(app):
     assert b"Please try again" in response.data
 
 
-def test_unknown_narrative_format_uses_default(app, monkeypatch):
+def test_analysis_ignores_a_submitted_format_preference(app, monkeypatch):
+    """The field was removed: every format is generated, so it decided nothing."""
     captured = {}
     monkeypatch.setattr(database, "save_analysis", lambda **kwargs: 123)
     monkeypatch.setattr(
         "pages.home.start_background_analysis",
-        lambda analysis_id, input_mode, input_data, format_pref: captured.update(
-            format_pref=format_pref
-        ),
+        lambda *args: captured.update(args=args),
     )
 
     response = app.test_client().post(
@@ -170,4 +169,19 @@ def test_unknown_narrative_format_uses_default(app, monkeypatch):
     )
 
     assert response.status_code == 302
-    assert captured["format_pref"] == "release"
+    assert captured["args"] == (123, "url", "https://github.com/owner/repository")
+    assert "fmt=" not in response.headers["Location"]
+
+
+def test_result_view_falls_back_to_the_default_format(app, monkeypatch):
+    """The results view still validates ?fmt= because links carry it."""
+    monkeypatch.setattr(
+        database,
+        "get_analysis_by_id",
+        lambda _id: {"id": 1, "slug": "s", "repo_name": "owner/repo", "status": "done"},
+    )
+    monkeypatch.setattr(database, "get_extended_data", lambda _id: {})
+
+    ok = app.test_client().get("/result/1?fmt=not-a-format")
+
+    assert ok.status_code == 200

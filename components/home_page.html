@@ -80,15 +80,6 @@
             </div>
           </div>
 
-          <div class="form-group mt-6">
-            <label class="form-label" for="format_pref">Open results in</label>
-            <select class="form-select" id="format_pref" name="format_pref">
-              {% for fmt_key, fmt_label in NARRATIVE_FORMATS %}
-              <option value="{{ fmt_key }}">{{ fmt_label }}</option>
-              {% endfor %}
-            </select>
-          </div>
-
           <button type="submit" class="btn btn--primary btn--lg btn--full mt-6" id="generate-btn">
             Analyze repository <span aria-hidden="true">→</span>
           </button>
