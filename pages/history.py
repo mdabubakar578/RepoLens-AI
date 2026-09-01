@@ -5,8 +5,9 @@ Routes:
 """
 
 from flask import Blueprint, render_template, request
-import database
+
 import config
+import database
 
 history_bp = Blueprint("history", __name__, template_folder="../components")
 
@@ -15,10 +16,11 @@ history_bp = Blueprint("history", __name__, template_folder="../components")
 def history():
     if not config.ENABLE_HISTORY:
         from flask import abort
+
         abort(404)
 
     search = request.args.get("q", "").strip()
-    page   = max(1, int(request.args.get("page", 1)))
+    page = max(1, request.args.get("page", default=1, type=int) or 1)
     per_page = 12
 
     analyses, total = database.get_all_analyses(search=search, page=page, per_page=per_page)

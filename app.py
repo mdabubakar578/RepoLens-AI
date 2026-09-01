@@ -2,10 +2,17 @@
 app.py — Flask Application Factory
 Registers all page blueprints, initializes DB, and sets up Jinja2.
 """
+
+import logging
 import os
-from flask import Flask
-import database
+
+from flask import Flask, render_template_string
+
 import config
+import database
+
+logger = logging.getLogger("repolens.app")
+
 
 def create_app():
     app = Flask(
@@ -18,6 +25,8 @@ def create_app():
     app.secret_key = config.SECRET_KEY
     app.config["MAX_CONTENT_LENGTH"] = config.MAX_FILE_SIZE_BYTES
 
+    if config.SECRET_KEY_IS_EPHEMERAL:
+        logger.warning("SECRET_KEY is not configured; sessions reset when the process restarts")
     app.jinja_env.globals.update(
         APP_NAME=config.APP_NAME,
         APP_TAGLINE=config.APP_TAGLINE,
@@ -33,6 +42,7 @@ def create_app():
 
     # Recover stale tasks from previous crashes
     from services.task_recovery import recover_stale_tasks
+
     recover_stale_tasks()
 
     # Ensure cache and temp directories exist
@@ -40,12 +50,12 @@ def create_app():
     os.makedirs(config.TEMP_CLONE_DIR, exist_ok=True)
 
     # Register blueprints
-    from pages.home import home_bp
-    from pages.analyze import analyze_bp
-    from pages.history import history_bp
-    from pages.detail import detail_bp
     from pages.about import about_bp
+    from pages.analyze import analyze_bp
     from pages.architecture import architecture_bp
+    from pages.detail import detail_bp
+    from pages.history import history_bp
+    from pages.home import home_bp
     from pages.qa import qa_bp
     from pages.risk import risk_bp
 
@@ -58,17 +68,45 @@ def create_app():
     app.register_blueprint(qa_bp)
     app.register_blueprint(risk_bp)
 
+    @app.get("/health")
+    def health():
+        """Return a dependency-free liveness response for deployment probes."""
+        return {"status": "ok", "service": config.APP_NAME, "version": config.APP_VERSION}
+
     @app.errorhandler(404)
-    def not_found(e):
-        from flask import render_template_string
+    def not_found(_error):
         return render_template_string(ERROR_404_HTML, APP_NAME=config.APP_NAME), 404
 
     @app.errorhandler(500)
-    def server_error(e):
-        from flask import render_template_string
-        return render_template_string(ERROR_500_HTML, APP_NAME=config.APP_NAME, error=str(e)), 500
+    def server_error(error):
+        logger.error("Unhandled application error", exc_info=error)
+        return render_template_string(ERROR_500_HTML, APP_NAME=config.APP_NAME), 500
+
+    @app.after_request
+    def add_security_headers(response):
+        """Apply browser security defaults without changing application content."""
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault(
+            "Referrer-Policy",
+            "strict-origin-when-cross-origin",
+        )
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=()",
+        )
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "frame-ancestors 'none'; base-uri 'self'",
+        )
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
+        return response
 
     return app
+
 
 ERROR_404_HTML = """
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
@@ -83,9 +121,9 @@ ERROR_500_HTML = """
 <title>500 — {{ APP_NAME }}</title>
 <style>body{background:#0a0a14;color:#e2e8f0;font-family:Inter,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
 h1{font-size:4rem;color:#dc2626}p{color:#94a3b8;max-width:600px}a{color:#a78bfa;text-decoration:none}code{background:#1e1e2e;padding:4px 8px;border-radius:4px;font-size:.85rem}</style></head>
-<body><div><h1>500</h1><p>Something went wrong.<br><code>{{ error }}</code></p><a href="/">← Back to home</a></div></body></html>
+<body><div><h1>500</h1><p>Something went wrong. Please try again.</p><a href="/">← Back to home</a></div></body></html>
 """
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=config.DEBUG, host="0.0.0.0", port=5000)
