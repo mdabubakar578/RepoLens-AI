@@ -154,3 +154,58 @@ def test_unanswerable_agent_question_is_low_confidence(tmp_path, monkeypatch):
     assert result.confidence == 0
     assert result.sufficient_evidence is False
     assert len(result.trace) <= 5
+
+
+def test_class_methods_are_chunked_individually():
+    """A class stored as one chunk exceeded the size cap and lost its later methods."""
+    source = (
+        "class Service:\n"
+        '    """Docstring."""\n'
+        "\n"
+        "    def first_method(self):\n"
+        "        return 'first result value'\n"
+        "\n"
+        "    def second_method(self):\n"
+        "        return 'second result value'\n"
+        "\n"
+        "    def third_method(self):\n"
+        "        return 'third result value'\n"
+    )
+    chunks = RAGService()._chunk_file("services/sample.py", source)
+    joined = "\n".join(chunk.content for chunk in chunks)
+
+    assert len(chunks) >= 3
+    for name in ("first_method", "second_method", "third_method"):
+        assert f"def {name}" in joined
+    assert all(chunk.end_line >= chunk.start_line for chunk in chunks)
+
+
+def test_oversized_regions_are_split_rather_than_truncated():
+    from services.rag_service import MAX_CHUNK_CHARS
+
+    body = "\n".join(f"    value_{index} = 'x' * 40" for index in range(400))
+    source = f"def enormous():\n{body}\n"
+    chunks = RAGService()._chunk_file("services/big.py", source)
+
+    assert len(chunks) > 1
+    assert all(len(chunk.content) <= MAX_CHUNK_CHARS for chunk in chunks)
+    # Every source line survives somewhere in the index.
+    assert "value_399" in "\n".join(chunk.content for chunk in chunks)
+
+
+def test_rare_identifiers_outrank_common_words():
+    service = RAGService()
+    service._chunks = []
+    for index in range(12):
+        service._chunks.extend(
+            service._chunk_file(f"noise_{index}.py", "def handler():\n    return 'tool calls here'\n")
+        )
+    service._chunks.extend(
+        service._chunk_file("target.py", "def calculate_widget_entropy():\n    return 42\n")
+    )
+    service._prepare_lexical_index()
+
+    results = service.search("calculate_widget_entropy", top_k=3)
+
+    assert results
+    assert results[0].chunk.file_path == "target.py"

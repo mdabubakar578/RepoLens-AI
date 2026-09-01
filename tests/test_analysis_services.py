@@ -272,3 +272,19 @@ def test_markdown_renders_fenced_code_blocks():
     assert "<pre><code>" in rendered
     assert "&lt;b&gt;" in rendered
     assert "<b>" not in rendered
+
+
+def test_markdown_renders_ordered_lists_and_safe_links():
+    rendered = _markdown_to_html("1. first\n2. second\n\nSee [docs](https://example.com).")
+
+    assert "<ol><li>first</li><li>second</li></ol>" in rendered
+    assert '<a href="https://example.com"' in rendered
+    assert "rel=\"noopener noreferrer nofollow\"" in rendered
+
+
+def test_markdown_refuses_script_bearing_link_targets():
+    """Narrative text derives from untrusted commits, so hostile hrefs must not render."""
+    for hostile in ("javascript:alert(1)", "data:text/html;base64,PHN2Zz4=", "vbscript:x"):
+        rendered = _markdown_to_html(f"[click]({hostile})")
+
+        assert "<a href" not in rendered

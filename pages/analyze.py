@@ -115,6 +115,22 @@ def _prepare_chart_data(groups):
     }
 
 
+SAFE_LINK_SCHEMES = ("http://", "https://", "mailto:")
+
+
+def _replace_link(match: re.Match) -> str:
+    """Render a Markdown link, refusing schemes that can execute script.
+
+    The narrative text is model-generated from untrusted commit history, so a
+    javascript: or data: target must never reach an href.
+    """
+    label, target = match.group(1), match.group(2)
+    lowered = target.lower()
+    if not (lowered.startswith(SAFE_LINK_SCHEMES) or target.startswith(("/", "#"))):
+        return match.group(0)
+    return f'<a href="{target}" rel="noopener noreferrer nofollow" target="_blank">{label}</a>'
+
+
 def _markdown_to_html(md_text: str) -> str:
     if not md_text:
         return ""
@@ -149,12 +165,19 @@ def _markdown_to_html(md_text: str) -> str:
         text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
         text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
         text = re.sub(r"^&gt;\s*(.+)$", r"<blockquote>\1</blockquote>", text, flags=re.MULTILINE)
+        text = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", _replace_link, text)
 
         def replace_list(m):
             items = re.findall(r"^[-*+]\s+(.+)$", m.group(0), re.MULTILINE)
             return "<ul>" + "".join(f"<li>{i}</li>" for i in items) + "</ul>"
 
         text = re.sub(r"(^[-*+]\s+.+$\n?)+", replace_list, text, flags=re.MULTILINE)
+
+        def replace_ordered_list(m):
+            items = re.findall(r"^\d+\.\s+(.+)$", m.group(0), re.MULTILINE)
+            return "<ol>" + "".join(f"<li>{i}</li>" for i in items) + "</ol>"
+
+        text = re.sub(r"(^\d+\.\s+.+$\n?)+", replace_ordered_list, text, flags=re.MULTILINE)
 
         def replace_table(m):
             rows = [

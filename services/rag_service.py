@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import json
 import logging
+import math
 import os
 import re
 from collections import Counter
@@ -105,6 +106,17 @@ CODE_EXTENSIONS = frozenset(
 )
 DOCUMENT_EXTENSIONS = frozenset({".md", ".rst", ".txt"})
 DOCUMENT_QUERY_TERMS = frozenset({"docs", "documentation", "install", "readme", "setup"})
+MAX_CHUNK_CHARS = config.RAG_CHUNK_SIZE * 4
+
+# Named so the ablation harness can zero individual terms and report the effect.
+SCORING_WEIGHTS = {
+    "coverage": 0.52,
+    "frequency": 0.10,
+    "path": 0.13,
+    "importance": 0.09,
+    "code_bonus": 0.06,
+    "definition_bonus": 0.10,
+}
 LOW_VALUE_PATH_PARTS = (
     ".changeset/",
     "/fixtures/",
@@ -161,6 +173,7 @@ class RAGService:
         self._chunks: list[CodeChunk] = []
         self._chunk_terms: list[Counter[str]] = []
         self._path_terms: list[set[str]] = []
+        self._document_frequency: Counter[str] = Counter()
         self._use_local = LOCAL_EMBEDDINGS_AVAILABLE and FAISS_AVAILABLE
 
     def index_repository(self, analysis_id: str, file_contents: dict[str, str]) -> int:
@@ -264,6 +277,27 @@ class RAGService:
         """Precompute term frequencies so repeated questions remain inexpensive."""
         self._chunk_terms = [Counter(self.tokenize(chunk.content)) for chunk in self._chunks]
         self._path_terms = [set(self.tokenize(chunk.file_path)) for chunk in self._chunks]
+        self._document_frequency = Counter()
+        for frequencies, path_terms in zip(self._chunk_terms, self._path_terms, strict=True):
+            self._document_frequency.update(set(frequencies) | path_terms)
+
+    def _idf(self, term: str) -> float:
+        """Return inverse document frequency for one term.
+
+        Without this, a question's common words ("tool", "calls", "work") count
+        as much as a rare identifier, so prose that happens to repeat the common
+        words outranks the code that actually defines the symbol.
+        """
+        total = max(1, len(self._chunks))
+        seen = self._document_frequency.get(term, 0)
+        return math.log((total + 1) / (seen + 1)) + 1.0
+
+    def _weighted_coverage(self, matched: set[str], query_terms: set[str]) -> float:
+        """Return the share of query *information* the matched terms explain."""
+        total = sum(self._idf(term) for term in query_terms)
+        if total <= 0:
+            return 0.0
+        return sum(self._idf(term) for term in matched) / total
 
     @staticmethod
     def _relevance_label(score: float) -> str:
@@ -333,33 +367,124 @@ class RAGService:
             score -= 0.6
         return round(score, 2)
 
+    @staticmethod
+    def _definition_span(node) -> tuple[int, int]:
+        """Return the 1-based line span of a definition, including decorators."""
+        starts = [node.lineno, *(item.lineno for item in getattr(node, "decorator_list", []))]
+        return min(starts), getattr(node, "end_lineno", node.lineno)
+
+    def _emit_region(
+        self,
+        path: str,
+        lines: list[str],
+        start_line: int,
+        end_line: int,
+        importance: float,
+        chunk_type: str,
+        covered: list[bool] | None = None,
+    ) -> list[CodeChunk]:
+        """Emit one region as one or more size-bounded chunks.
+
+        Oversized regions are split across successive chunks rather than
+        truncated. Truncation silently dropped the tail of every large class,
+        so most method bodies never reached the index at all.
+        """
+        chunks: list[CodeChunk] = []
+        if covered is not None:
+            for index in range(start_line - 1, min(end_line, len(lines))):
+                covered[index] = True
+
+        buffer: list[str] = []
+        buffer_start = start_line
+        size = 0
+        for offset, line in enumerate(lines[start_line - 1 : end_line], start=start_line):
+            # +1 accounts for the newline that rejoins the buffer.
+            if buffer and size + len(line) + 1 > MAX_CHUNK_CHARS:
+                chunks.append(
+                    self._build_chunk(path, buffer, buffer_start, offset - 1, chunk_type, importance)
+                )
+                buffer, buffer_start, size = [], offset, 0
+            buffer.append(line)
+            size += len(line) + 1
+        if buffer:
+            chunks.append(
+                self._build_chunk(path, buffer, buffer_start, end_line, chunk_type, importance)
+            )
+        return [chunk for chunk in chunks if chunk is not None]
+
+    @staticmethod
+    def _build_chunk(
+        path: str,
+        buffer: list[str],
+        start_line: int,
+        end_line: int,
+        chunk_type: str,
+        importance: float,
+    ) -> CodeChunk | None:
+        text = "\n".join(buffer)
+        if len(text.strip()) <= 20:
+            return None
+        return CodeChunk(
+            content=text,
+            file_path=path,
+            start_line=start_line,
+            end_line=end_line,
+            chunk_type=chunk_type,
+            importance_score=importance,
+        )
+
     def _chunk_python(self, path: str, content: str, lines: list[str]) -> list[CodeChunk]:
-        """Chunk Python files by AST boundaries, preserving module-level code."""
-        chunks = []
+        """Chunk Python files by AST boundaries, preserving module-level code.
+
+        Classes are split per method rather than stored whole. A class held as a
+        single chunk exceeded the size cap and lost its tail, so its methods were
+        absent from retrieval and its citations spanned the entire class.
+        """
+        chunks: list[CodeChunk] = []
         importance = self._calculate_importance(path)
         covered = [False] * len(lines)
         try:
             tree = ast.parse(content)
-            for node in ast.iter_child_nodes(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    start = node.lineno - 1
-                    end = getattr(node, "end_lineno", start + 1)
-                    for index in range(start, min(end, len(lines))):
-                        covered[index] = True
-                    chunk_text = "\n".join(lines[start:end])
-                    if len(chunk_text.strip()) > 20:
-                        chunks.append(
-                            CodeChunk(
-                                content=chunk_text[: config.RAG_CHUNK_SIZE * 4],
-                                file_path=path,
-                                start_line=start + 1,
-                                end_line=end,
-                                chunk_type="code",
-                                importance_score=importance,
-                            )
-                        )
         except (SyntaxError, ValueError):
             return self._chunk_sliding_window(path, lines)
+
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                start, end = self._definition_span(node)
+                chunks.extend(
+                    self._emit_region(path, lines, start, end, importance, "code", covered)
+                )
+            elif isinstance(node, ast.ClassDef):
+                start, end = self._definition_span(node)
+                methods = [
+                    child
+                    for child in ast.iter_child_nodes(node)
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                ]
+                # Class signature, docstring, and attributes stay together.
+                header_end = self._definition_span(methods[0])[0] - 1 if methods else end
+                if header_end >= start:
+                    chunks.extend(
+                        self._emit_region(
+                            path, lines, start, header_end, importance, "code", covered
+                        )
+                    )
+                for method in methods:
+                    method_start, method_end = self._definition_span(method)
+                    chunks.extend(
+                        self._emit_region(
+                            path, lines, method_start, method_end, importance, "code", covered
+                        )
+                    )
+                # Any trailing class body after the last method.
+                if methods:
+                    last_end = self._definition_span(methods[-1])[1]
+                    if end > last_end:
+                        chunks.extend(
+                            self._emit_region(
+                                path, lines, last_end + 1, end, importance, "code", covered
+                            )
+                        )
 
         index = 0
         while index < len(lines):
@@ -367,19 +492,9 @@ class RAGService:
                 start = index
                 while index < len(lines) and not covered[index]:
                     index += 1
-                end = index
-                chunk_text = "\n".join(lines[start:end]).strip()
-                if len(chunk_text) > 20:
-                    chunks.append(
-                        CodeChunk(
-                            content=chunk_text[: config.RAG_CHUNK_SIZE * 4],
-                            file_path=path,
-                            start_line=start + 1,
-                            end_line=end,
-                            chunk_type="module",
-                            importance_score=importance,
-                        )
-                    )
+                chunks.extend(
+                    self._emit_region(path, lines, start + 1, index, importance, "module")
+                )
             else:
                 index += 1
         return chunks or self._chunk_sliding_window(path, lines)
@@ -398,7 +513,7 @@ class RAGService:
             if len(chunk_text) > 20:
                 chunks.append(
                     CodeChunk(
-                        content=chunk_text[: config.RAG_CHUNK_SIZE * 4],
+                        content=chunk_text[:MAX_CHUNK_CHARS],
                         file_path=path,
                         start_line=i + 1,
                         end_line=end,
@@ -449,20 +564,26 @@ class RAGService:
             return 0.0, (), 0.0
 
         term_coverage = len(matched_terms) / len(query_terms)
+        # Scored on information content, not raw term count.
+        weighted_coverage = self._weighted_coverage(set(matched_terms), query_terms)
         frequency_strength = sum(
             min(frequencies.get(term, 0), 3) for term in content_matches
         ) / (3 * len(query_terms))
-        path_coverage = len(path_matches) / len(query_terms)
+        path_coverage = self._weighted_coverage(path_matches, query_terms)
         importance = min(1.0, max(0.0, (chunk.importance_score - 0.4) / 1.1))
         extension = os.path.splitext(chunk.file_path)[1].lower()
-        code_bonus = 0.06 if extension in CODE_EXTENSIONS else 0
-        definition_bonus = 0.1 if self._contains_definition(chunk.content, query_terms) else 0
+        code_bonus = SCORING_WEIGHTS["code_bonus"] if extension in CODE_EXTENSIONS else 0
+        definition_bonus = (
+            SCORING_WEIGHTS["definition_bonus"]
+            if self._contains_definition(chunk.content, query_terms)
+            else 0
+        )
 
         score = (
-            0.52 * term_coverage
-            + 0.10 * frequency_strength
-            + 0.13 * path_coverage
-            + 0.09 * importance
+            SCORING_WEIGHTS["coverage"] * weighted_coverage
+            + SCORING_WEIGHTS["frequency"] * frequency_strength
+            + SCORING_WEIGHTS["path"] * path_coverage
+            + SCORING_WEIGHTS["importance"] * importance
             + code_bonus
             + definition_bonus
         )

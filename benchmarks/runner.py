@@ -16,7 +16,7 @@ from pathlib import Path
 import config
 from services.investigator import RepositoryInvestigator
 from services.knowledge_graph import KnowledgeGraph
-from services.rag_service import RAGService
+from services.rag_service import SCORING_WEIGHTS, RAGService
 from services.repository_indexer import select_index_files
 
 CORPUS = {
@@ -242,7 +242,50 @@ def _percentile(values: list[float], percentile: float) -> float:
     return ordered[index]
 
 
-def run_benchmark() -> dict:
+HELDOUT_CASES = (
+    BenchmarkCase(
+        "heldout_password_check",
+        "Python",
+        "Which module verifies a user's password?",
+        ("python_app/services/auth_service.py",),
+    ),
+    BenchmarkCase(
+        "heldout_user_lookup",
+        "Python",
+        "What code looks up a user by email address?",
+        ("python_app/repositories/user_repository.py",),
+    ),
+    BenchmarkCase(
+        "heldout_payment_capture",
+        "JavaScript",
+        "What happens after the payment token is captured?",
+        ("web/src/services/paymentService.js",),
+    ),
+    BenchmarkCase(
+        "heldout_order_persistence",
+        "Java",
+        "Where does an order get persisted?",
+        (
+            "java/src/main/java/example/orders/OrderService.java",
+            "java/src/main/java/example/orders/OrderRepository.java",
+        ),
+    ),
+    BenchmarkCase(
+        "heldout_pool_size",
+        "YAML",
+        "How is the connection pool size set?",
+        ("config/application.yml",),
+    ),
+    BenchmarkCase(
+        "heldout_negative_graphql",
+        "Cross-language",
+        "Where is the GraphQL subscription resolver defined?",
+        negative=True,
+    ),
+)
+
+
+def run_benchmark(cases: tuple = CASES) -> dict:
     """Run the benchmark without network or LLM calls and return serializable results."""
     file_tree = [{"type": "blob", "path": path} for path in CORPUS]
     selected_paths = select_index_files(file_tree, limit=60)
@@ -269,7 +312,7 @@ def run_benchmark() -> dict:
                 edge["relation"] == "resolves_to" for edge in graph.edges
             )
 
-            for case in CASES:
+            for case in cases:
                 started = time.perf_counter()
                 investigation = RepositoryInvestigator("benchmark").investigate(case.question)
                 latency_ms = (time.perf_counter() - started) * 1000
@@ -332,7 +375,7 @@ def run_benchmark() -> dict:
             "graph_nodes": graph_stats["node_count"],
             "graph_edges": graph_stats["edge_count"],
             "resolved_edges": resolved_edges,
-            "languages": sorted({case.language for case in CASES if not case.negative}),
+            "languages": sorted({case.language for case in cases if not case.negative}),
         },
         "metrics": {
             "file_recall_at_5": round(recall, 4),
@@ -414,6 +457,62 @@ def _markdown_report(results: dict) -> str:
     return "\n".join(lines)
 
 
+def run_ablation() -> list[dict]:
+    """Re-run the tuning set with each scoring term disabled, one at a time.
+
+    Reports what each hand-tuned weight actually contributes, so the constants
+    are justified by measurement rather than assertion.
+    """
+    baseline = run_benchmark()["metrics"]
+    rows = [
+        {
+            "variant": "full scoring",
+            "disabled": "-",
+            "file_recall_at_5": baseline["file_recall_at_5"],
+            "mean_reciprocal_rank": baseline["mean_reciprocal_rank"],
+            "recall_delta": 0.0,
+        }
+    ]
+    original = dict(SCORING_WEIGHTS)
+    try:
+        for name in original:
+            SCORING_WEIGHTS.update(original)
+            SCORING_WEIGHTS[name] = 0.0
+            metrics = run_benchmark()["metrics"]
+            rows.append(
+                {
+                    "variant": f"without {name}",
+                    "disabled": name,
+                    "file_recall_at_5": metrics["file_recall_at_5"],
+                    "mean_reciprocal_rank": metrics["mean_reciprocal_rank"],
+                    "recall_delta": round(
+                        metrics["file_recall_at_5"] - baseline["file_recall_at_5"], 4
+                    ),
+                }
+            )
+    finally:
+        SCORING_WEIGHTS.update(original)
+    return rows
+
+
+def _ablation_markdown(rows: list[dict]) -> str:
+    lines = [
+        "# Scoring ablation",
+        "",
+        "Each row disables one scoring term and re-runs the tuning question set.",
+        "A recall delta of 0.00 means the term is not load-bearing for this corpus.",
+        "",
+        "| Variant | Recall@5 | MRR | Recall delta |",
+        "|---|---|---|---|",
+    ]
+    lines.extend(
+        f"| {row['variant']} | {row['file_recall_at_5']:.4f} | "
+        f"{row['mean_reciprocal_rank']:.4f} | {row['recall_delta']:+.4f} |"
+        for row in rows
+    )
+    return "\n".join(lines)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -422,9 +521,17 @@ def main() -> int:
         help="JSON result path",
     )
     parser.add_argument("--check", action="store_true", help="Fail if quality gates regress")
+    parser.add_argument(
+        "--ablation",
+        action="store_true",
+        help="Also measure each scoring term's contribution",
+    )
     args = parser.parse_args()
 
     results = run_benchmark()
+    # Reported separately: these questions were written after tuning and are
+    # never used to choose weights, so they are the honest generalization signal.
+    results["heldout"] = run_benchmark(HELDOUT_CASES)["metrics"]
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
@@ -432,6 +539,18 @@ def main() -> int:
         _markdown_report(results) + "\n", encoding="utf-8"
     )
     print(json.dumps(results["metrics"], indent=2))
+    print("\nheld-out set (never tuned on):")
+    print(json.dumps(results["heldout"], indent=2))
+
+    if args.ablation:
+        ablation = run_ablation()
+        Path("docs/evaluation-ablation.md").write_text(
+            _ablation_markdown(ablation) + "\n", encoding="utf-8"
+        )
+        print("\nablation:")
+        for row in ablation:
+            print(f"  {row['variant']:26} recall={row['file_recall_at_5']:.4f} "
+                  f"delta={row['recall_delta']:+.4f}")
 
     if args.check:
         metrics = results["metrics"]
