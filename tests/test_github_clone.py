@@ -34,3 +34,33 @@ def test_clone_fallback_is_bounded_and_cleans_temporary_directory(tmp_path, monk
         "kill_after_timeout": 37,
     }
     assert not Path(observed["destination"]).exists()
+
+
+def test_changed_file_enrichment_is_skipped_without_a_token(monkeypatch):
+    """Each commit costs an API request; unauthenticated runs must not spend them."""
+    from services import github_service
+
+    calls = []
+    monkeypatch.setattr(github_service.config, "GITHUB_API_TOKEN", "")
+    monkeypatch.setattr(
+        github_service, "fetch_commit_files", lambda *a: calls.append(a) or ["x.py"]
+    )
+    commits = [{"full_hash": "a" * 40}]
+
+    assert github_service.populate_changed_files("o", "r", commits) == 0
+    assert calls == []
+    assert "changed_files" not in commits[0]
+
+
+def test_changed_file_enrichment_is_bounded_by_sample_size(monkeypatch):
+    from services import github_service
+
+    monkeypatch.setattr(github_service.config, "GITHUB_API_TOKEN", "ghp_" + "x" * 36)
+    monkeypatch.setattr(github_service.config, "CHURN_COMMIT_SAMPLE", 3)
+    monkeypatch.setattr(github_service, "fetch_commit_files", lambda *a: ["src/app.py"])
+    commits = [{"full_hash": f"{index:040d}"} for index in range(10)]
+
+    enriched = github_service.populate_changed_files("o", "r", commits)
+
+    assert enriched == 3
+    assert sum("changed_files" in c for c in commits) == 3

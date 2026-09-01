@@ -8,6 +8,36 @@ import os
 import re
 from collections import defaultdict, deque
 
+JS_EXTENSIONS = (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
+JS_RESERVED = frozenset(
+    {
+        "if", "for", "while", "switch", "catch", "return", "function", "class",
+        "const", "let", "var", "await", "typeof", "new", "super", "this",
+        "require", "import", "export", "default", "try", "else", "do", "throw",
+    }
+)
+JS_DEFINITION_PATTERN = re.compile(
+    r"^[ \t]*(?:export\s+)?(?:default\s+)?(?:async\s+)?"
+    r"(?:function\s*\*?\s+(?P<fname>[A-Za-z_$][\w$]*)"
+    r"|class\s+(?P<cname>[A-Za-z_$][\w$]*)"
+    r"|(?:const|let|var)\s+(?P<vname>[A-Za-z_$][\w$]*)\s*=\s*"
+    r"(?:async\s*)?(?:function\s*\*?\s*\(|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>))",
+    re.M,
+)
+JS_IMPORT_PATTERN = re.compile(
+    r"""import\s[^;'"]*?from\s*['"](?P<module>[^'"]+)['"]"""
+    r"""|import\s*['"](?P<bare>[^'"]+)['"]"""
+    r"""|require\s*\(\s*['"](?P<req>[^'"]+)['"]\s*\)""",
+    re.S,
+)
+JS_ROUTE_PATTERN = re.compile(
+    r"\b(?:app|router|server|api)\s*\.\s*"
+    r"(?P<method>get|post|put|patch|delete|all)\s*\(\s*"
+    r"""['"`](?P<route>[^'"`]+)['"`]"""
+    r"(?:\s*,\s*(?P<handler>[A-Za-z_$][\w$]*))?"
+)
+JS_CALL_PATTERN = re.compile(r"\b(?P<callee>[A-Za-z_$][\w$]*)\s*\(")
+
 
 class KnowledgeGraph:
     """Records files, symbols, imports, calls, and Flask routes."""
@@ -24,9 +54,110 @@ class KnowledgeGraph:
             self._add_node(path, "file", path=path, line=1)
             if path.endswith(".py"):
                 self._parse_python(path, content)
+            elif path.endswith(JS_EXTENSIONS):
+                self._parse_javascript(path, content)
         self._resolve_references()
         self._reindex()
         return self.stats()
+
+    # ── JavaScript and TypeScript ────────────────────────────────────────────
+
+    @staticmethod
+    def _strip_js_noise(content):
+        """Blank out comments and string bodies so brace counting stays honest."""
+        content = re.sub(r"/\*.*?\*/", lambda m: " " * len(m.group(0)), content, flags=re.S)
+        content = re.sub(r"//[^\n]*", lambda m: " " * len(m.group(0)), content)
+        content = re.sub(
+            r"(['\"`])(?:\\.|(?!\1).)*\1",
+            lambda m: m.group(1) + " " * (len(m.group(0)) - 2) + m.group(1),
+            content,
+            flags=re.S,
+        )
+        return content
+
+    def _parse_javascript(self, path, content):
+        """Record symbols, imports, routes, and calls without an LLM.
+
+        A regex reader cannot match a real parser, but it resolves the same
+        relationships the Python reader does, so dependency and impact
+        questions stop returning nothing on JavaScript and TypeScript code.
+        """
+        text = self._strip_js_noise(content)
+        line_starts = [0]
+        for line in text.splitlines(keepends=True):
+            line_starts.append(line_starts[-1] + len(line))
+
+        def line_of(offset):
+            low, high = 0, len(line_starts) - 1
+            while low < high:
+                mid = (low + high + 1) // 2
+                if line_starts[mid] <= offset:
+                    low = mid
+                else:
+                    high = mid - 1
+            return low + 1
+
+        definitions = []
+        for match in JS_DEFINITION_PATTERN.finditer(text):
+            name = match.group("fname") or match.group("cname") or match.group("vname")
+            if not name or name in JS_RESERVED:
+                continue
+            kind = "class" if match.group("cname") else "function"
+            start = line_of(match.start())
+            end = line_of(self._js_block_end(text, match.end()))
+            symbol_id = f"{path}::{name}"
+            self._add_node(symbol_id, kind, name=name, path=path, line=start, end_line=end)
+            self._add_edge(path, symbol_id, "defines")
+            definitions.append((match.start(), self._js_block_end(text, match.end()), symbol_id))
+
+        # Imports and routes carry their meaning inside string literals, which the
+        # stripper blanks. Length is preserved, so offsets still line up.
+        for match in JS_IMPORT_PATTERN.finditer(content):
+            module = match.group("module") or match.group("bare") or match.group("req")
+            if module:
+                module_id = f"module::{module}"
+                self._add_node(module_id, "module", name=module, importer=path)
+                self._add_edge(path, module_id, "imports")
+
+        for match in JS_ROUTE_PATTERN.finditer(content):
+            route = {"method": match.group("method").upper(), "path": match.group("route")}
+            route_id = f"route::{route['method']}::{route['path']}"
+            self._add_node(route_id, "route", **route)
+            handler = match.group("handler")
+            if handler and f"{path}::{handler}" in self.nodes:
+                self._add_edge(route_id, f"{path}::{handler}", "handled_by")
+            else:
+                self._add_edge(route_id, path, "handled_by")
+
+        for match in JS_CALL_PATTERN.finditer(text):
+            name = match.group("callee")
+            if not name or name in JS_RESERVED:
+                continue
+            owner = path
+            for start, end, symbol_id in definitions:
+                if start <= match.start() <= end:
+                    owner = symbol_id
+                    break
+            call_id = f"call::{name}"
+            self._add_node(call_id, "call", name=name)
+            self._add_edge(owner, call_id, "calls")
+
+    @staticmethod
+    def _js_block_end(text, search_from):
+        """Return the offset closing the block that opens after a definition."""
+        opening = text.find("{", search_from)
+        if opening == -1:
+            newline = text.find("\n", search_from)
+            return newline if newline != -1 else len(text)
+        depth = 0
+        for offset in range(opening, len(text)):
+            if text[offset] == "{":
+                depth += 1
+            elif text[offset] == "}":
+                depth -= 1
+                if depth == 0:
+                    return offset
+        return len(text)
 
     def _parse_python(self, path, content):
         try:
@@ -137,8 +268,14 @@ class KnowledgeGraph:
             elif node["kind"] in {"function", "class"}:
                 symbols[node.get("name", "").lower()].append(node["id"])
 
+        known_files = {node["id"] for node in self.nodes.values() if node["kind"] == "file"}
+
         for node in list(self.nodes.values()):
             if node["kind"] == "module":
+                resolved = self._resolve_javascript_import(node, known_files)
+                if resolved:
+                    self._add_edge(node["id"], resolved, "resolves_to")
+                    continue
                 module_name = node.get("name", "").lstrip(".")
                 for path in sorted(modules.get(module_name, set())):
                     self._add_edge(node["id"], path, "resolves_to")
@@ -146,6 +283,32 @@ class KnowledgeGraph:
                 call_name = node.get("name", "").rsplit(".", maxsplit=1)[-1].lower()
                 for symbol_id in sorted(symbols.get(call_name, []))[:4]:
                     self._add_edge(node["id"], symbol_id, "resolves_to")
+
+    @staticmethod
+    def _resolve_javascript_import(node, known_files):
+        """Resolve a relative JavaScript import to an indexed repository file.
+
+        Bare specifiers such as "react" are third-party and stay unresolved,
+        which is correct: they are not part of this repository.
+        """
+        specifier = node.get("name", "")
+        importer = node.get("importer", "")
+        if not specifier.startswith(".") or not importer:
+            return None
+
+        base = os.path.dirname(importer)
+        target = os.path.normpath(os.path.join(base, specifier)).replace(os.sep, "/")
+        candidates = [
+            f"{target}{extension}" for extension in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
+        ]
+        candidates.insert(0, target)
+        candidates.extend(
+            f"{target}/index{extension}" for extension in (".ts", ".tsx", ".js", ".jsx")
+        )
+        for candidate in candidates:
+            if candidate in known_files:
+                return candidate
+        return None
 
     @staticmethod
     def _module_aliases(path):

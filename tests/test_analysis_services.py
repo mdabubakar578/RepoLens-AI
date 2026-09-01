@@ -21,6 +21,7 @@ from services.repo_analyzer import (
     analyze_repository,
     compute_language_stats,
     detect_entry_points,
+    detect_hotspots,
     parse_dependencies,
 )
 from services.serialization import load_json_list
@@ -288,3 +289,28 @@ def test_markdown_refuses_script_bearing_link_targets():
         rendered = _markdown_to_html(f"[click]({hostile})")
 
         assert "<a href" not in rendered
+
+
+def test_hotspots_refuse_to_guess_files_from_commit_messages():
+    """Message text yielded version numbers as files, presented as churn risk."""
+    commits = [
+        {"author": "A", "message": "Bump to 1.9 and update java.lang usage"},
+        {"author": "B", "message": "Release 9.3 with app.py tweaks"},
+    ]
+
+    assert detect_hotspots(commits) == []
+
+
+def test_hotspots_use_real_changed_files_when_present():
+    commits = [
+        {"author": "A", "changed_files": ["src/app.py", "src/db.py"], "message": "x"},
+        {"author": "B", "changed_files": ["src/app.py"], "message": "y"},
+        {"author": "C", "changed_files": ["src/app.py"], "message": "z"},
+    ]
+
+    hotspots = detect_hotspots(commits)
+
+    assert hotspots
+    assert hotspots[0]["file"] == "src/app.py"
+    assert hotspots[0]["mentions"] == 3
+    assert hotspots[0]["authors"] == 3

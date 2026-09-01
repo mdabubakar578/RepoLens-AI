@@ -24,6 +24,31 @@
     {% set active_repository_view = "qa" %}
     {% include "repository_nav.html" %}
 
+    {% set coverage = tech_data.get('index_coverage') if tech_data else None %}
+    {% if coverage and coverage.get('repository_files') %}
+    {# States plainly what the agent can see. Questions about unindexed files
+       cannot be answered, and hiding that would overstate the evidence. #}
+    <div class="card animate-fade-in-up" style="margin-bottom:var(--space-6)">
+      <p class="section-label">What is searchable</p>
+      <p class="text-sm" style="margin-top:var(--space-2)">
+        <strong>{{ coverage.indexed_files }}</strong> of
+        <strong>{{ coverage.repository_files }}</strong> repository files are indexed
+        ({{ coverage.coverage_percent }}%), producing {{ coverage.chunks }} searchable chunks.
+        {% if coverage.get('selection_capped') %}
+        Selection stops at the {{ coverage.selection_cap }} highest-ranked source files, so
+        answers cover the most architecturally significant code rather than everything.
+        {% endif %}
+      </p>
+      {% set graph = tech_data.get('knowledge_graph') if tech_data else None %}
+      {% if graph and not graph.get('edge_count') %}
+      <p class="text-sm text-muted" style="margin-top:var(--space-2)">
+        No structural relationships were resolved for this repository, so dependency and
+        change-impact questions fall back to text search only.
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <!-- Suggested Questions -->
     <div class="card animate-fade-in-up" style="margin-bottom:var(--space-6)">
       <h2 style="font-size:1rem;margin-bottom:var(--space-3);color:var(--text-secondary)">Try asking</h2>

@@ -317,15 +317,22 @@ def find_todos(file_contents: dict[str, str]) -> list[dict]:
 
 
 def detect_hotspots(commits: list[dict]) -> list[dict]:
-    """Find files with the most commit churn and contributor overlap."""
+    """Find files with the most commit churn and contributor overlap.
+
+    Churn requires real changed-file data. Inferring file names from commit
+    message text produced entries such as version numbers ("1.9") and package
+    names ("java.lang") presented as files with risk levels, so an analysis
+    without changed-file data now reports no hotspots instead of guessing.
+    """
+    if not any(c.get("changed_files") for c in commits):
+        logger.info("No changed-file data available; skipping churn hotspots")
+        return []
+
     file_mentions = Counter()
     file_authors = defaultdict(set)
     for c in commits:
         author = c.get("author", "Unknown")
         files = c.get("changed_files", [])
-        if not files:
-            msg = c.get("message", "")
-            files = re.findall(r"[\w/]+\.[\w]+", msg)
         for f in files:
             file_mentions[f] += 1
             file_authors[f].add(author)

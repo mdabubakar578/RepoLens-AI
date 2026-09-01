@@ -37,6 +37,7 @@ Do not include API keys, private repository content, personal information, or de
 ## Known boundaries
 
 - Public repositories only; no private OAuth permission model.
+- Only a bounded, ranked subset of a repository is indexed. The Q&A page states how much, and questions about unindexed files cannot be answered.
 - SQLite and local indexes are designed for a single deployment instance.
 - Git clone and GitHub API access still process untrusted public metadata and must retain timeouts and file limits.
 - Generated prose can be incorrect even when evidence is supplied; citations and warnings must remain visible.

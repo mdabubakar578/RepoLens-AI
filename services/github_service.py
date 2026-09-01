@@ -18,6 +18,7 @@ import shutil
 import tempfile
 import zipfile
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from urllib.error import HTTPError, URLError
@@ -316,6 +317,46 @@ def fetch_commit_files(owner: str, repo: str, sha: str) -> list[str]:
         return [f["filename"] for f in data.get("files", []) if "filename" in f]
     except Exception:
         return []
+
+
+def populate_changed_files(owner: str, repo: str, commits: list[dict]) -> int:
+    """Attach real changed-file lists to the most recent commits.
+
+    Each commit costs one API request, so this is bounded by
+    CHURN_COMMIT_SAMPLE and skipped entirely without a configured token, where
+    the unauthenticated hourly allowance would be spent immediately. Commits
+    left without data are simply excluded from churn analysis.
+
+    Returns:
+        The number of commits that received changed-file data.
+    """
+    if not _has_configured_github_token(config.GITHUB_API_TOKEN):
+        logger.info("No GitHub token configured; skipping changed-file enrichment")
+        return 0
+
+    sample = [c for c in commits if c.get("full_hash")][: config.CHURN_COMMIT_SAMPLE]
+    if not sample:
+        return 0
+
+    enriched = 0
+    workers = min(config.INDEX_FETCH_WORKERS, len(sample))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="commit-files") as pool:
+        futures = {
+            pool.submit(fetch_commit_files, owner, repo, commit["full_hash"]): commit
+            for commit in sample
+        }
+        for future in as_completed(futures):
+            commit = futures[future]
+            try:
+                files = future.result()
+            except Exception:
+                files = []
+            if files:
+                commit["changed_files"] = files
+                enriched += 1
+
+    logger.info("Enriched %d of %d sampled commits with changed files", enriched, len(sample))
+    return enriched
 
 
 # ── GitHub API core ──

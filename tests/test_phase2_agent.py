@@ -79,3 +79,90 @@ def test_investigator_runs_bounded_impact_plan(tmp_path, monkeypatch):
     assert any(step["tool"] == "find_symbol" for step in result.trace)
     assert result.sources
     assert 0 <= result.confidence <= 100
+
+
+JS_FILES = {
+    "web/routes/checkout.js": (
+        'import { createCheckout } from "../controllers/checkoutController.js";\n'
+        'import express from "express";\n'
+        'router.post("/checkout", createCheckout);\n'
+    ),
+    "web/controllers/checkoutController.js": (
+        'import { chargeCard } from "../services/paymentService.js";\n'
+        "export async function createCheckout(request, response) {\n"
+        "  return chargeCard(request.body.token);\n"
+        "}\n"
+    ),
+    "web/services/paymentService.js": (
+        "export async function chargeCard(token) {\n"
+        "  return gateway.capture(token);\n"
+        "}\n"
+        "export class PaymentError extends Error {}\n"
+    ),
+}
+
+
+def test_javascript_graph_resolves_symbols_imports_and_routes():
+    """Non-Python repositories previously produced file nodes and zero edges."""
+    graph = KnowledgeGraph()
+    stats = graph.build(JS_FILES)
+
+    assert stats["edge_count"] > 0
+    assert stats["kinds"]["function"] >= 2
+    assert stats["kinds"]["class"] >= 1
+    assert stats["kinds"]["route"] >= 1
+
+    resolved = {
+        (edge["source"], edge["target"])
+        for edge in graph.edges
+        if edge["relation"] == "resolves_to"
+    }
+    assert (
+        "module::../services/paymentService.js",
+        "web/services/paymentService.js",
+    ) in resolved
+    assert (
+        "call::chargeCard",
+        "web/services/paymentService.js::chargeCard",
+    ) in resolved
+
+
+def test_javascript_route_keeps_its_path():
+    graph = KnowledgeGraph()
+    graph.build(JS_FILES)
+
+    routes = [node for node in graph.nodes.values() if node["kind"] == "route"]
+
+    assert any(node["path"] == "/checkout" and node["method"] == "POST" for node in routes)
+
+
+def test_third_party_javascript_imports_stay_unresolved():
+    """A bare specifier is not part of the repository and must not resolve."""
+    graph = KnowledgeGraph()
+    graph.build(JS_FILES)
+
+    assert "module::express" in graph.nodes
+    assert not [
+        edge
+        for edge in graph.edges
+        if edge["source"] == "module::express" and edge["relation"] == "resolves_to"
+    ]
+
+
+def test_javascript_strings_do_not_break_block_detection():
+    graph = KnowledgeGraph()
+    graph.build(
+        {
+            "a.js": (
+                "export function tricky() {\n"
+                '  const brace = "} not a real close";\n'
+                "  return helperCall();\n"
+                "}\n"
+            )
+        }
+    )
+
+    calls = [edge for edge in graph.edges if edge["relation"] == "calls"]
+
+    assert any(edge["target"] == "call::helperCall" for edge in calls)
+    assert any(edge["source"] == "a.js::tricky" for edge in calls)

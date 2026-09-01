@@ -168,11 +168,23 @@ def build_repository_intelligence(
 
     indexed_count = len(file_contents)
     eligible_count = len(selected_paths)
+    repository_count = len(file_tree)
     coverage = {
-        "repository_files": len(file_tree),
+        "repository_files": repository_count,
         "eligible_files": eligible_count,
         "indexed_files": indexed_count,
         "chunks": chunk_count,
-        "coverage_percent": round(indexed_count / eligible_count * 100, 1) if eligible_count else 0,
+        # Share of the repository that is actually searchable. Selection is
+        # capped by MAX_INDEX_FILES, so this is usually well below 100 percent
+        # and must not be confused with the fetch success rate below.
+        "coverage_percent": (
+            round(indexed_count / repository_count * 100, 1) if repository_count else 0
+        ),
+        # Share of the files we chose that were successfully retrieved.
+        "fetch_success_percent": (
+            round(indexed_count / eligible_count * 100, 1) if eligible_count else 0
+        ),
+        "selection_cap": config.MAX_INDEX_FILES,
+        "selection_capped": eligible_count >= config.MAX_INDEX_FILES,
     }
     return file_contents, {"index_coverage": coverage, "knowledge_graph": graph_stats}

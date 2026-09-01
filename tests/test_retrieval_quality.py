@@ -209,3 +209,20 @@ def test_rare_identifiers_outrank_common_words():
 
     assert results
     assert results[0].chunk.file_path == "target.py"
+
+
+def test_coverage_reports_share_of_repository_not_fetch_success():
+    """Reporting indexed/eligible always neared 100% and overstated understanding."""
+    from services.repository_indexer import build_repository_intelligence
+
+    tree = [{"path": f"src/file_{i}.py", "type": "blob", "size": 40} for i in range(200)]
+    sources = {item["path"]: "def handler():\n    return 1\n" for item in tree}
+
+    _, stats = build_repository_intelligence(1, tree, sources.get)
+    coverage = stats["index_coverage"]
+
+    assert coverage["repository_files"] == 200
+    assert coverage["indexed_files"] <= coverage["selection_cap"]
+    assert coverage["coverage_percent"] < 100
+    assert coverage["fetch_success_percent"] == 100.0
+    assert coverage["selection_capped"] is True

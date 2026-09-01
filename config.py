@@ -46,6 +46,8 @@ MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024  # 2 MB
 MAX_FILE_SCAN_SIZE = 100_000  # Max chars per file for analysis
 MAX_REPO_FILES = 500  # Max files to scan in a repo
 MAX_ARCHIVE_DOWNLOAD_BYTES = 25_000_000  # Bound public archive fallback memory
+# One API request per commit, so churn enrichment is sampled, not exhaustive.
+CHURN_COMMIT_SAMPLE = int(os.environ.get("CHURN_COMMIT_SAMPLE", "60"))
 CLONE_DEPTH = 200
 GIT_CLONE_TIMEOUT_SECONDS = int(os.environ.get("GIT_CLONE_TIMEOUT_SECONDS", "45"))
 ENABLE_GIT_CLONE_FALLBACK = True

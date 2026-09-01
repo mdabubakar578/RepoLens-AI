@@ -33,10 +33,11 @@ The app accepts a GitHub repository URL, pasted git log, or uploaded log file, t
 
 - **RepoLens Investigator (Phase II)**
   - Plans bounded repository investigations with a maximum of five read-only tool calls.
-  - Searches code, finds symbols, and traces dependency evidence through an AST graph.
+  - Searches code, finds symbols, and traces dependency evidence through a source graph.
+  - Resolves structure from Python (AST) and JavaScript/TypeScript (deterministic reader); other languages are searchable as text but contribute no structural edges.
   - Supports lookup, architecture, request-flow, and change-impact questions.
   - Shows its tool trace, evidence sources, and an application-defined confidence score.
-  - Reports repository indexing coverage instead of claiming complete understanding.
+  - Reports the share of the repository actually indexed, and says when structural evidence is unavailable, instead of claiming complete understanding.
 
 - **Generated views**
   - Release notes.
@@ -95,7 +96,7 @@ Flask pages for results, architecture, risk, history, share, and Q&A
 - **Backend:** Python, Flask
 - **Database:** SQLite
 - **LLM provider:** Google Gemini through `google-genai`
-- **Retrieval:** identifier-aware lexical search, Python AST graph, optional FAISS and sentence-transformers
+- **Retrieval:** identifier-aware lexical search with IDF weighting, Python AST and JavaScript/TypeScript source graph, optional FAISS and sentence-transformers
 - **Frontend:** Jinja templates, HTML, CSS, JavaScript
 - **Runtime:** Gunicorn-compatible Flask app
 
@@ -173,7 +174,7 @@ python -m coverage report --fail-under=70
 python -m benchmarks.runner --check
 ```
 
-The recorded suite has 85 passing tests, 75% whole-project coverage, and 82% combined coverage for the five core agent modules. The controlled offline benchmark records 100% File Recall@5 versus 77.8% for a naive baseline on the questions used while tuning. On a held-out question set the naive baseline also reaches 100% Recall@5, so that advantage does not reproduce out of sample; the measured gain there is in ranking quality (MRR 0.80 versus 0.65). These figures are regression evidence for the included corpus, not universal accuracy.
+The recorded suite has 94 passing tests, 77% whole-project coverage, and 85% combined coverage for the five core agent modules. The controlled offline benchmark records 100% File Recall@5 versus 77.8% for a naive baseline on the questions used while tuning. On a held-out question set the naive baseline also reaches 100% Recall@5, so that advantage does not reproduce out of sample; the measured gain there is in ranking quality (MRR 0.80 versus 0.65). These figures are regression evidence for the included corpus, not universal accuracy.
 
 ## Final Submission Package
 

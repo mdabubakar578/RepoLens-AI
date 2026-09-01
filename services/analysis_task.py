@@ -25,6 +25,7 @@ from services.github_service import (
     parse_from_file,
     parse_from_text,
     parse_from_url,
+    populate_changed_files,
 )
 from services.repo_analyzer import analyze_repository
 from services.repository_indexer import build_repository_intelligence, select_index_files
@@ -108,6 +109,10 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                 database.update_progress(analysis_id, 30, "Reading repository structure")
                 owner, repo = extract_owner_repo(input_data)
                 cache_key = f"{owner}/{repo}"
+
+                # Churn analysis needs real changed-file lists. Without them the
+                # hotspot detector has nothing to work from and reports nothing.
+                populate_changed_files(owner, repo, commits)
 
                 # Metadata
                 logger.info(f"Task {analysis_id}: Fetching repo metadata...")

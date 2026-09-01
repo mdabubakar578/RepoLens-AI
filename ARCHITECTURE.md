@@ -39,7 +39,7 @@ Flask blueprints validate HTTP-specific input, call an application service, and 
 - `commit_classifier.py` — rule-based commit grouping and contribution signals.
 - `repo_analyzer.py` — technologies, dependencies, hotspots, risks, and complexity.
 - `architecture_analyzer.py` — explainable structural heuristics.
-- `knowledge_graph.py` — AST-derived files, symbols, routes, imports, and calls.
+- `knowledge_graph.py` — files, symbols, routes, imports, and calls, from the Python AST and a deterministic JavaScript/TypeScript reader. No model is involved in deriving structure.
 - `rag_service.py` — AST-aware chunks and FAISS/keyword retrieval.
 
 ### AI integration
