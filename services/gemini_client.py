@@ -20,16 +20,13 @@ logger = logging.getLogger("repolens.gemini")
 
 try:
     from google import genai
-    from google.api_core.exceptions import ResourceExhausted
     from google.genai import types
+    from google.genai.errors import APIError
 
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
-    ResourceExhausted = Exception
-    DeadlineExceeded = Exception
-    InvalidArgument = Exception
-    GoogleAPIError = Exception
+    APIError = Exception
 
 
 @dataclass
@@ -263,6 +260,7 @@ class GeminiClient:
 
         full_prompt = f"System: {system}\n\nUser: {prompt}" if system else prompt
 
+        last_error = "AI request unavailable"
         for attempt in range(1, config.AI_MAX_ATTEMPTS + 1):
             try:
                 response = self.client.models.generate_content(
@@ -281,16 +279,69 @@ class GeminiClient:
                     total_tokens=getattr(usage, "total_token_count", 0) or 0,
                     success=True,
                 )
-            except ResourceExhausted as exc:
-                logger.warning("AI quota exhausted on attempt %d: %s", attempt, exc)
+            except APIError as exc:
+                message = str(exc).lower()
+                status_code = getattr(exc, "code", None)
+                last_error = str(exc)[:300]
+                if (
+                    status_code == 400
+                    and "api key" in message
+                    and ("invalid" in message or "not valid" in message)
+                ):
+                    # Stop calling the API for every narrative and question. A
+                    # restart after correcting the secret re-enables the client.
+                    self._configured = False
+                    logger.error(
+                        "Gemini authentication failed; switching to retrieval/local fallback"
+                    )
+                    return GeminiResponse(
+                        content="", success=False, error="Gemini authentication unavailable"
+                    )
+                if status_code == 404 or "not found" in message or "not supported" in message:
+                    replacement = self._find_supported_text_model()
+                    if replacement and replacement != self.model_name:
+                        logger.warning(
+                            "Gemini model %s unavailable; retrying with %s",
+                            self.model_name,
+                            replacement,
+                        )
+                        self.model_name = replacement
+                        continue
+                if "safety" in message or "blocked" in message:
+                    return GeminiResponse(content="", success=False, error="Safety filter refusal")
+                logger.warning("AI request failed on attempt %d: %s", attempt, exc)
             except Exception as exc:
                 message = str(exc).lower()
+                last_error = str(exc)[:300]
                 if "safety" in message or "blocked" in message:
                     return GeminiResponse(content="", success=False, error="Safety filter refusal")
                 logger.warning("AI request failed on attempt %d: %s", attempt, exc)
             if attempt < config.AI_MAX_ATTEMPTS:
                 time.sleep(min(2**attempt, 4))
-        return GeminiResponse(content="", success=False, error="AI request unavailable")
+        return GeminiResponse(content="", success=False, error=last_error)
+
+    def _find_supported_text_model(self) -> str | None:
+        """Discover a usable Flash text model when a configured model expires."""
+        try:
+            candidates = []
+            for model in self.client.models.list():
+                name = (getattr(model, "name", "") or "").split("/")[-1]
+                actions = set(getattr(model, "supported_actions", None) or [])
+                lower = name.lower()
+                if actions and "generateContent" not in actions:
+                    continue
+                if "gemini" not in lower or "flash" not in lower:
+                    continue
+                if any(
+                    token in lower
+                    for token in ("image", "tts", "live", "embedding", "robotics")
+                ):
+                    continue
+                candidates.append(name)
+            return _choose_supported_model(candidates)
+        except Exception as exc:
+            logger.warning("Could not discover Gemini models: %s", exc)
+            return None
 
 
 def _generate_local_narratives(commit_data_text: str, repo_name: str = "") -> dict[str, str]:
@@ -298,6 +349,19 @@ def _generate_local_narratives(commit_data_text: str, repo_name: str = "") -> di
         fmt: _generate_local_narrative(fmt, commit_data_text, repo_name)
         for fmt in ["release", "standup", "onboarding", "portfolio"]
     }
+
+
+def _choose_supported_model(names: list[str]) -> str | None:
+    """Prefer stable, recent Flash models while remaining future compatible."""
+    if not names:
+        return None
+    preferred = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    available = set(names)
+    for name in preferred:
+        if name in available:
+            return name
+    stable = [name for name in names if not any(tag in name for tag in ("preview", "exp"))]
+    return sorted(stable or names, reverse=True)[0]
 
 
 def _generate_local_narrative(fmt: str, commit_data_text: str, repo_name: str = "") -> str:
@@ -399,6 +463,8 @@ def _parse_commit_sections(commit_data_text: str) -> list[dict]:
 
 
 def _parse_commit_item(line: str) -> dict | None:
+    if "Milestones:" in line and not line.startswith("["):
+        return None
     match = re.match(r"^\[(?P<label>[^\]]+)\]\s+(?P<message>.*?)(?:\s+\(by\s+.*\))?$", line)
     if match:
         return {

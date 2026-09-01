@@ -173,7 +173,7 @@ python -m coverage report --fail-under=70
 python -m benchmarks.runner --check
 ```
 
-The recorded suite has 65 passing tests, 73% whole-project coverage, and 80% combined coverage for the five core agent modules. The controlled offline benchmark records 100% File Recall@5 versus 77.8% for a naive baseline. These figures are regression evidence for the included corpus, not universal accuracy.
+The recorded suite has 74 passing tests, 72% whole-project coverage, and 81% combined coverage for the five core agent modules. The controlled offline benchmark records 100% File Recall@5 versus 77.8% for a naive baseline. These figures are regression evidence for the included corpus, not universal accuracy.
 
 ## Final Submission Package
 

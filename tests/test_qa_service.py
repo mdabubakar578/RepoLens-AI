@@ -74,3 +74,52 @@ def test_response_body_hides_internal_status_code():
 
     assert result.response_body()["answer"] == "Bad request"
     assert "status_code" not in result.response_body()
+
+
+def test_index_rebuild_is_skipped_when_chunks_exist(monkeypatch, tmp_path):
+    monkeypatch.setattr("services.qa_service.config.INDEX_CACHE_DIR", str(tmp_path))
+    (tmp_path / "7_chunks.json").write_text("[]", encoding="utf-8")
+
+    rebuilt = RepositoryQAService._rebuild_index_if_missing(
+        7, {"repo_url": "https://github.com/owner/repository"}
+    )
+
+    assert rebuilt is False
+
+
+def test_index_rebuild_is_skipped_for_non_github_sources(monkeypatch, tmp_path):
+    monkeypatch.setattr("services.qa_service.config.INDEX_CACHE_DIR", str(tmp_path))
+
+    assert RepositoryQAService._rebuild_index_if_missing(7, {"repo_url": "pasted:raw"}) is False
+
+
+def test_index_rebuild_restores_evidence_from_archive(monkeypatch, tmp_path):
+    """Hosted storage is recycled on restart; the archive must restore evidence."""
+    monkeypatch.setattr("services.qa_service.config.INDEX_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr("services.rag_service.config.INDEX_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr("services.qa_service.database.get_extended_data", lambda _: {})
+    monkeypatch.setattr(
+        "services.qa_service.fetch_repository_archive",
+        lambda owner, repo, branch: ([], {"app.py": "def create_app():\n    return 1\n"}),
+    )
+
+    rebuilt = RepositoryQAService._rebuild_index_if_missing(
+        7, {"repo_url": "https://github.com/owner/repository"}
+    )
+
+    assert rebuilt is True
+    assert (tmp_path / "7_chunks.json").exists()
+
+
+def test_index_rebuild_reports_failure_without_raising(monkeypatch, tmp_path):
+    monkeypatch.setattr("services.qa_service.config.INDEX_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr("services.qa_service.database.get_extended_data", lambda _: {})
+
+    def explode(*_args):
+        raise RuntimeError("archive unavailable")
+
+    monkeypatch.setattr("services.qa_service.fetch_repository_archive", explode)
+
+    assert RepositoryQAService._rebuild_index_if_missing(
+        7, {"repo_url": "https://github.com/owner/repository"}
+    ) is False

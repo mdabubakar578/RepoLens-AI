@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import asdict, dataclass, field
 
 import config
 import database
 from services.gemini_client import gemini
+from services.github_service import extract_owner_repo, fetch_repository_archive
 from services.investigator import Investigation, RepositoryInvestigator
+from services.knowledge_graph import KnowledgeGraph
+from services.rag_service import RAGService
 
 logger = logging.getLogger("repolens.qa")
 
@@ -62,6 +66,8 @@ class RepositoryQAService:
             message = f"Question must be {config.MAX_QUESTION_CHARS} characters or fewer."
             return self._error(message, "Question too long", 400)
 
+        self._rebuild_index_if_missing(analysis_id, analysis)
+
         investigation_started = time.monotonic()
         investigation = RepositoryInvestigator(str(analysis_id)).investigate(question)
         retrieval_ms = int((time.monotonic() - investigation_started) * 1000)
@@ -108,6 +114,42 @@ class RepositoryQAService:
             warning=warning,
             tokens_used=response.total_tokens,
         )
+
+    @staticmethod
+    def _rebuild_index_if_missing(analysis_id: int, analysis: dict) -> bool:
+        """Restore retrieval evidence after hosted local storage is recycled.
+
+        Free hosting tiers do not persist the index cache across restarts. One
+        bounded public archive download rebuilds the chunks and graph so the
+        investigator still has repository evidence to cite.
+
+        Returns:
+            Whether an index was rebuilt.
+        """
+        chunk_path = os.path.join(config.INDEX_CACHE_DIR, f"{analysis_id}_chunks.json")
+        if os.path.exists(chunk_path):
+            return False
+        repo_url = analysis.get("repo_url") or ""
+        if "github.com" not in repo_url:
+            return False
+        try:
+            owner, repo = extract_owner_repo(repo_url)
+            metadata = database.get_extended_data(analysis_id).get("metadata") or {}
+            branch = metadata.get("default_branch", "main")
+            _, contents = fetch_repository_archive(owner, repo, branch)
+            if not contents:
+                return False
+            RAGService().index_repository(str(analysis_id), contents)
+            graph = KnowledgeGraph()
+            graph.build(contents)
+            graph.save(str(analysis_id))
+            logger.info(
+                "Rebuilt index %s from archive (%d files)", analysis_id, len(contents)
+            )
+            return True
+        except Exception as exc:
+            logger.warning("Could not rebuild index %s: %s", analysis_id, exc)
+            return False
 
     @staticmethod
     def _build_context(analysis_id: int, investigation: Investigation) -> str:

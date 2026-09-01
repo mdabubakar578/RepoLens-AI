@@ -21,6 +21,7 @@ from services.github_service import (
     fetch_file_content,
     fetch_file_tree,
     fetch_repo_metadata,
+    fetch_repository_archive,
     parse_from_file,
     parse_from_text,
     parse_from_url,
@@ -144,6 +145,15 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                         set_cached(cache_key, file_tree, "_tree")
                         logger.info(f"Task {analysis_id}: Fetched and cached file tree.")
 
+                # A rate-limited tree request leaves nothing to index. The
+                # archive fallback restores both tree and sources in one call.
+                archive_sources: dict[str, str] = {}
+                if not file_tree:
+                    logger.info(
+                        "Task %s: file tree unavailable; using archive fallback.", analysis_id
+                    )
+                    file_tree, archive_sources = fetch_repository_archive(owner, repo, branch)
+
                 # Code Analysis
                 if file_tree:
                     logger.info(f"Task {analysis_id}: Analyzing source code...")
@@ -151,6 +161,8 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                     database.update_progress(analysis_id, 45, "Indexing selected source files")
 
                     def fetch_source(path: str) -> str | None:
+                        if archive_sources:
+                            return archive_sources.get(path)
                         if isinstance(cached_sources, dict):
                             return cached_sources.get(path)
                         return fetch_file_content(owner, repo, path, branch)
@@ -158,6 +170,27 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                     file_contents, index_stats = build_repository_intelligence(
                         analysis_id, file_tree, fetch_source
                     )
+                    source_mode = "github-archive" if archive_sources else "github-api"
+
+                    # Unauthenticated hosted deployments exhaust the REST quota
+                    # quickly. One bounded archive download restores source
+                    # evidence without spending further REST calls.
+                    if len(file_contents) < 3 and not archive_sources:
+                        logger.info(
+                            "Task %s: source fetch sparse; using archive fallback.", analysis_id
+                        )
+                        archive_tree, archive_contents = fetch_repository_archive(
+                            owner, repo, branch
+                        )
+                        if archive_tree and not file_tree:
+                            file_tree = archive_tree
+                        if archive_contents:
+                            merged = {**archive_contents, **file_contents}
+                            file_contents, index_stats = build_repository_intelligence(
+                                analysis_id, file_tree, merged.get
+                            )
+                            source_mode = "github-archive"
+
                     if file_contents and not isinstance(cached_sources, dict):
                         set_cached(cache_key, file_contents, "_sources")
                     github_langs = (repo_metadata or {}).get("languages", {})
@@ -165,9 +198,10 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                         file_tree, file_contents, commits, github_langs
                     )
                     logger.info(
-                        "Task %s: indexed %s files",
+                        "Task %s: indexed %s files via %s",
                         analysis_id,
                         index_stats["index_coverage"]["indexed_files"],
+                        source_mode,
                     )
 
                     tech_data = {
@@ -187,6 +221,7 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                         "risk_items": repo_analysis.risk_items,
                         "directory_summary": repo_analysis.directory_summary,
                         **index_stats,
+                        "source_mode": source_mode,
                     }
 
                     logger.info(f"Task {analysis_id}: Analyzing architecture...")
