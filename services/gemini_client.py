@@ -7,21 +7,22 @@ quota management, and safety-filter trap logic.
 
 from __future__ import annotations
 
-import os
+import logging
 import re
 import time
-import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Optional
 
 import config
-from services.grok_client import DEMO_OUTPUTS, NARRATIVE_PROMPTS
+from services.ai_prompts import NARRATIVE_PROMPTS
 
 logger = logging.getLogger("repolens.gemini")
 
 try:
     from google import genai
-    from google.api_core.exceptions import ResourceExhausted, DeadlineExceeded, InvalidArgument, GoogleAPIError
+    from google.api_core.exceptions import ResourceExhausted
+    from google.genai import types
+
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -66,7 +67,6 @@ Provide a clear, structured analysis covering:
 
 Output in Markdown. Be specific and reference actual file paths.
 """,
-
     "onboarding_guide": """You are a senior engineer writing a comprehensive onboarding guide for a new developer joining this project.
 
 Repository: {repo_name}
@@ -88,7 +88,6 @@ Write a welcoming, practical onboarding guide covering:
 
 Output in Markdown. Be practical and developer-friendly.
 """,
-
     "security_review": """You are a security engineer reviewing a codebase for potential security concerns.
 
 Repository: {repo_name}
@@ -113,7 +112,6 @@ For each finding, provide:
 
 Output in Markdown. Be specific but not alarmist.
 """,
-
     "repo_qa": """You are a strictly fact-based engineering assistant. Answer the user's question about this repository using ONLY the provided code chunks.
 
 Repository: {repo_name}
@@ -142,19 +140,22 @@ class GeminiClient:
 
     def __init__(self) -> None:
         self._configured = False
-        
+
         if not GEMINI_AVAILABLE:
             logger.warning("google-genai SDK not installed — Gemini features disabled")
             return
 
         key = config.GEMINI_API_KEY
         if not key or key.strip() == "" or key == "YOUR_GEMINI_API_KEY_HERE":
-            logger.warning("GEMINI_API_KEY not configured — using demo mode")
+            logger.warning("GEMINI_API_KEY not configured — using local fallbacks")
             return
 
         try:
             self.model_name = config.GEMINI_MODEL
-            self.client = genai.Client(api_key=key.strip())
+            self.client = genai.Client(
+                api_key=key.strip(),
+                http_options=types.HttpOptions(timeout=config.AI_TIMEOUT_SECONDS * 1000),
+            )
             self._configured = True
             logger.info("Gemini API client initialized (model=%s)", self.model_name)
         except Exception as exc:
@@ -164,15 +165,29 @@ class GeminiClient:
         return GEMINI_AVAILABLE and self._configured
 
     # ── Public API ────────────────────────────────────────────────────────────
-
     def generate_all(self, commit_data_text: str, repo_name: str = "") -> dict[str, str]:
+        """Generate independent formats concurrently with deterministic fallbacks."""
+        formats = ("release", "standup", "onboarding", "portfolio")
         if not self.is_available():
             logger.info("Gemini unavailable; using local narrative generation")
             return _generate_local_narratives(commit_data_text, repo_name)
         results: dict[str, str] = {}
-        for fmt in ["release", "standup", "onboarding", "portfolio"]:
-            resp = self._call_narrative(fmt, commit_data_text)
-            results[fmt] = resp.content if resp.success else _generate_local_narrative(fmt, commit_data_text, repo_name)
+        with ThreadPoolExecutor(max_workers=len(formats), thread_name_prefix="narrative") as pool:
+            futures = {
+                pool.submit(self._call_narrative, fmt, commit_data_text): fmt for fmt in formats
+            }
+            for future in as_completed(futures):
+                fmt = futures[future]
+                try:
+                    response = future.result()
+                except Exception as exc:
+                    logger.warning("Narrative %s failed: %s", fmt, exc)
+                    response = GeminiResponse(content="", success=False, error=str(exc))
+                results[fmt] = (
+                    response.content
+                    if response.success
+                    else _generate_local_narrative(fmt, commit_data_text, repo_name)
+                )
         return results
 
     def generate_single(self, fmt: str, commit_data_text: str) -> str:
@@ -185,20 +200,36 @@ class GeminiClient:
         self, repo_name: str, technologies: str, file_tree: str, file_contents: str
     ) -> GeminiResponse:
         prompt = ANALYSIS_PROMPTS["architecture_summary"].format(
-            repo_name=repo_name, technologies=technologies, file_tree=file_tree, file_contents=file_contents
+            repo_name=repo_name,
+            technologies=technologies,
+            file_tree=file_tree,
+            file_contents=file_contents,
         )
-        return self._call(prompt, "You are a senior software architect specializing in codebase analysis.")
+        return self._call(
+            prompt,
+            "You are a senior software architect specializing in codebase analysis.",
+        )
 
     def generate_onboarding(
-        self, repo_name: str, technologies: str, architecture_summary: str, recent_activity: str, file_tree: str
+        self,
+        repo_name: str,
+        technologies: str,
+        architecture_summary: str,
+        recent_activity: str,
+        file_tree: str,
     ) -> GeminiResponse:
         prompt = ANALYSIS_PROMPTS["onboarding_guide"].format(
-            repo_name=repo_name, technologies=technologies, architecture_summary=architecture_summary,
-            recent_activity=recent_activity, file_tree=file_tree
+            repo_name=repo_name,
+            technologies=technologies,
+            architecture_summary=architecture_summary,
+            recent_activity=recent_activity,
+            file_tree=file_tree,
         )
         return self._call(prompt, "You are a senior engineer writing onboarding documentation.")
 
-    def review_security(self, repo_name: str, technologies: str, file_contents: str) -> GeminiResponse:
+    def review_security(
+        self, repo_name: str, technologies: str, file_contents: str
+    ) -> GeminiResponse:
         prompt = ANALYSIS_PROMPTS["security_review"].format(
             repo_name=repo_name, technologies=technologies, file_contents=file_contents
         )
@@ -208,7 +239,10 @@ class GeminiClient:
         self, repo_name: str, technologies: str, context: str, question: str
     ) -> GeminiResponse:
         prompt = ANALYSIS_PROMPTS["repo_qa"].format(
-            repo_name=repo_name, technologies=technologies, context=context, question=question
+            repo_name=repo_name,
+            technologies=technologies,
+            context=context,
+            question=question,
         )
         return self._call(prompt, "You are a strictly fact-based engineering assistant.")
 
@@ -217,9 +251,10 @@ class GeminiClient:
     def _call_narrative(self, fmt: str, commit_data_text: str) -> GeminiResponse:
         template = NARRATIVE_PROMPTS.get(fmt, NARRATIVE_PROMPTS["release"])
         prompt = template.format(commit_data=commit_data_text)
-        resp = self._call(prompt, "You are a helpful AI assistant specialized in analyzing software development history.")
-        if not resp.success:
-            resp.content = DEMO_OUTPUTS.get(fmt, f"Error generating {fmt}.")
+        resp = self._call(
+            prompt,
+            "You are a helpful AI assistant specialized in analyzing software development history.",
+        )
         return resp
 
     def _call(self, prompt: str, system: str = "") -> GeminiResponse:
@@ -228,57 +263,34 @@ class GeminiClient:
 
         full_prompt = f"System: {system}\n\nUser: {prompt}" if system else prompt
 
-        import concurrent.futures
-        for attempt in range(1, 4):
+        for attempt in range(1, config.AI_MAX_ATTEMPTS + 1):
             try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(
-                        self.client.models.generate_content,
-                        model=self.model_name,
-                        contents=full_prompt
-                    )
-                    response = future.result(timeout=60)
-
-                if not response or not hasattr(response, 'text'):
-                    logger.warning("Empty or malformed response body from Gemini.")
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=full_prompt,
+                )
+                if not response or not hasattr(response, "text"):
                     return GeminiResponse(content="", success=False, error="Empty response body")
-
                 text = response.text.strip()
                 if "---END_COMMIT_DATA---" in text:
                     text = text.split("---END_COMMIT_DATA---")[-1].strip()
-
-                total_tokens = 0
-                if hasattr(response, "usage_metadata") and response.usage_metadata:
-                    total_tokens = response.usage_metadata.total_token_count
-
+                usage = getattr(response, "usage_metadata", None)
                 return GeminiResponse(
                     content=text,
                     model=self.model_name,
-                    total_tokens=total_tokens,
-                    success=True
+                    total_tokens=getattr(usage, "total_token_count", 0) or 0,
+                    success=True,
                 )
-
-            except concurrent.futures.TimeoutError:
-                logger.error("Gemini call timed out (attempt %d/3)", attempt)
-                if attempt == 3:
-                    return GeminiResponse(content="", success=False, error="API timeout")
-                time.sleep(2)
             except ResourceExhausted as exc:
-                wait = min(2 ** attempt * 2, 30)
-                logger.warning("Gemini Rate limited/Quota Exhausted (attempt %d/3): %s", attempt, exc)
-                time.sleep(wait)
+                logger.warning("AI quota exhausted on attempt %d: %s", attempt, exc)
             except Exception as exc:
-                # Catch-all for safety filters or other API errors
-                err_msg = str(exc).lower()
-                if "safety" in err_msg or "blocked" in err_msg:
-                    logger.warning("Gemini Safety Filter Refusal: %s", exc)
+                message = str(exc).lower()
+                if "safety" in message or "blocked" in message:
                     return GeminiResponse(content="", success=False, error="Safety filter refusal")
-                
-                logger.error("Unexpected error in Gemini call (attempt %d/3): %s", attempt, exc)
-                if attempt < 3:
-                    time.sleep(2 ** attempt)
-
-        return GeminiResponse(content="", success=False, error="API calls exhausted")
+                logger.warning("AI request failed on attempt %d: %s", attempt, exc)
+            if attempt < config.AI_MAX_ATTEMPTS:
+                time.sleep(min(2**attempt, 4))
+        return GeminiResponse(content="", success=False, error="AI request unavailable")
 
 
 def _generate_local_narratives(commit_data_text: str, repo_name: str = "") -> dict[str, str]:
@@ -299,8 +311,9 @@ def _generate_local_narrative(fmt: str, commit_data_text: str, repo_name: str = 
         for section in weeks:
             lines.append(f"## {section['title']}")
             lines.append("")
-            for item in section["items"][:12]:
-                lines.append(f"- **[{item['label']}]** {item['message']}")
+            lines.extend(
+                f"- **[{item['label']}]** {item['message']}" for item in section["items"][:12]
+            )
             lines.append("")
         lines.extend(_summary_table(total_commits, type_counts))
         return "\n".join(lines).strip()
@@ -326,12 +339,17 @@ def _generate_local_narrative(fmt: str, commit_data_text: str, repo_name: str = 
             "## Recent Evolution",
         ]
         for section in weeks:
-            lines.append(f"- **{section['title']}**: " + "; ".join(item["message"] for item in section["items"][:4]))
-        lines.extend([
-            "",
-            "## Suggested First Read",
-            "Start with the newest activity group, then review the generated architecture and risk pages for structure, hotspots, and process quality.",
-        ])
+            lines.append(
+                f"- **{section['title']}**: "
+                + "; ".join(item["message"] for item in section["items"][:4])
+            )
+        lines.extend(
+            [
+                "",
+                "## Suggested First Read",
+                "Start with the newest activity group, then review the generated architecture and risk pages for structure, hotspots, and process quality.",
+            ]
+        )
         return "\n".join(lines).strip()
 
     lines = [
@@ -343,12 +361,17 @@ def _generate_local_narrative(fmt: str, commit_data_text: str, repo_name: str = 
     ]
     for label, count in sorted(type_counts.items(), key=lambda item: (-item[1], item[0])):
         lines.append(f"- **{label}:** {count} commit(s)")
-    lines.extend([
-        "",
-        "## Recent Work",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Recent Work",
+        ]
+    )
     for section in weeks:
-        lines.append(f"- **{section['title']}**: " + "; ".join(item["message"] for item in section["items"][:4]))
+        lines.append(
+            f"- **{section['title']}**: "
+            + "; ".join(item["message"] for item in section["items"][:4])
+        )
     return "\n".join(lines).strip()
 
 
@@ -370,13 +393,18 @@ def _parse_commit_sections(commit_data_text: str) -> list[dict]:
         item = _parse_commit_item(line)
         if item:
             current["items"].append(item)
-    return [section for section in sections if section["items"]] or [{"title": "Analyzed Commits", "items": []}]
+    return [section for section in sections if section["items"]] or [
+        {"title": "Analyzed Commits", "items": []}
+    ]
 
 
 def _parse_commit_item(line: str) -> dict | None:
     match = re.match(r"^\[(?P<label>[^\]]+)\]\s+(?P<message>.*?)(?:\s+\(by\s+.*\))?$", line)
     if match:
-        return {"label": match.group("label").strip(), "message": match.group("message").strip()}
+        return {
+            "label": match.group("label").strip(),
+            "message": match.group("message").strip(),
+        }
     if line.startswith("["):
         return None
     return {"label": "Change", "message": line}
@@ -394,11 +422,21 @@ def _top_labels(items: list[dict]) -> list[str]:
     counts: dict[str, int] = {}
     for item in items:
         counts[item["label"]] = counts.get(item["label"], 0) + 1
-    return [label.lower() for label, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:3]]
+    return [
+        label.lower()
+        for label, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:3]
+    ]
 
 
 def _summary_table(total_commits: int, type_counts: dict[str, int]) -> list[str]:
-    lines = ["### Summary", "", f"- Total commits analyzed: **{total_commits}**", "", "| Type | Count |", "|------|-------|"]
+    lines = [
+        "### Summary",
+        "",
+        f"- Total commits analyzed: **{total_commits}**",
+        "",
+        "| Type | Count |",
+        "|------|-------|",
+    ]
     for label, count in sorted(type_counts.items(), key=lambda item: (-item[1], item[0])):
         lines.append(f"| {label} | {count} |")
     return lines
@@ -406,4 +444,3 @@ def _summary_table(total_commits: int, type_counts: dict[str, int]) -> list[str]
 
 # ─── Global Singleton ─────────────────────────────────────────────────────────
 gemini = GeminiClient()
-grok = gemini  # Alias for compatibility

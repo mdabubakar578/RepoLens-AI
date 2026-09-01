@@ -3,10 +3,13 @@ services/task_recovery.py
 ===========================
 Utility to recover stale tasks that were interrupted.
 """
+
 import logging
+
 import database
 
 logger = logging.getLogger("repolens.recovery")
+
 
 def recover_stale_tasks():
     """
@@ -24,5 +27,5 @@ def recover_stale_tasks():
             task.get("id"),
             task.get("repo_name"),
             task.get("status"),
-            task.get("created_at")
+            task.get("created_at"),
         )

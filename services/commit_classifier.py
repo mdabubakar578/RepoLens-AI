@@ -6,31 +6,124 @@ Groups commits by week and detects version milestones.
 """
 
 import re
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
 
 # ── Commit Type Definitions ────────────────────────────────────────────────────
 COMMIT_TYPES = {
-    "feature":       {"label": "Feature",       "color": "#7c3aed", "icon": "✨"},
-    "bugfix":        {"label": "Bug Fix",        "color": "#dc2626", "icon": "🐛"},
-    "hotfix":        {"label": "Hotfix",         "color": "#ef4444", "icon": "🚨"},
-    "refactor":      {"label": "Refactor",       "color": "#2563eb", "icon": "♻️"},
-    "docs":          {"label": "Docs",           "color": "#0891b2", "icon": "📝"},
-    "test":          {"label": "Tests",          "color": "#16a34a", "icon": "🧪"},
-    "devops":        {"label": "DevOps",         "color": "#d97706", "icon": "⚙️"},
-    "chore":         {"label": "Chore",          "color": "#64748b", "icon": "🔧"},
+    "feature": {"label": "Feature", "color": "#7c3aed", "icon": "✨"},
+    "bugfix": {"label": "Bug Fix", "color": "#dc2626", "icon": "🐛"},
+    "hotfix": {"label": "Hotfix", "color": "#ef4444", "icon": "🚨"},
+    "refactor": {"label": "Refactor", "color": "#2563eb", "icon": "♻️"},
+    "docs": {"label": "Docs", "color": "#0891b2", "icon": "📝"},
+    "test": {"label": "Tests", "color": "#16a34a", "icon": "🧪"},
+    "devops": {"label": "DevOps", "color": "#d97706", "icon": "⚙️"},
+    "chore": {"label": "Chore", "color": "#64748b", "icon": "🔧"},
 }
 
 # ── Keyword Rules (order matters — first match wins) ─────────────────────────
 KEYWORD_RULES = [
-    ("hotfix",   ["hotfix", "urgent fix", "critical fix", "emergency"]),
-    ("bugfix",   ["fix", "bug", "patch", "resolve", "revert", "broken", "error", "issue", "crash"]),
-    ("feature",  ["feat", "feature", "add", "new", "implement", "introduce", "support", "create", "build", "integrate"]),
-    ("refactor", ["refactor", "restructure", "cleanup", "clean up", "simplify", "optimize", "improve", "perf", "performance"]),
-    ("docs",     ["doc", "docs", "readme", "changelog", "comment", "documentation", "licence", "license"]),
-    ("test",     ["test", "spec", "unit test", "e2e", "integration test", "coverage", "assert"]),
-    ("devops",   ["ci", "cd", "deploy", "docker", "kubernetes", "k8s", "workflow", "action", "pipeline", "build", "release", "version", "bump", "config", "env", "nginx", "aws", "gcp"]),
-    ("chore",    ["chore", "merge", "wip", "initial", "init", "scaffold", "setup", "dependency", "deps", "update", "upgrade", "lock"]),
+    ("hotfix", ["hotfix", "urgent fix", "critical fix", "emergency"]),
+    (
+        "bugfix",
+        [
+            "fix",
+            "bug",
+            "patch",
+            "resolve",
+            "revert",
+            "broken",
+            "error",
+            "issue",
+            "crash",
+        ],
+    ),
+    (
+        "feature",
+        [
+            "feat",
+            "feature",
+            "add",
+            "new",
+            "implement",
+            "introduce",
+            "support",
+            "create",
+            "build",
+            "integrate",
+        ],
+    ),
+    (
+        "refactor",
+        [
+            "refactor",
+            "restructure",
+            "cleanup",
+            "clean up",
+            "simplify",
+            "optimize",
+            "improve",
+            "perf",
+            "performance",
+        ],
+    ),
+    (
+        "docs",
+        [
+            "doc",
+            "docs",
+            "readme",
+            "changelog",
+            "comment",
+            "documentation",
+            "licence",
+            "license",
+        ],
+    ),
+    (
+        "test",
+        ["test", "spec", "unit test", "e2e", "integration test", "coverage", "assert"],
+    ),
+    (
+        "devops",
+        [
+            "ci",
+            "cd",
+            "deploy",
+            "docker",
+            "kubernetes",
+            "k8s",
+            "workflow",
+            "action",
+            "pipeline",
+            "build",
+            "release",
+            "version",
+            "bump",
+            "config",
+            "env",
+            "nginx",
+            "aws",
+            "gcp",
+        ],
+    ),
+    (
+        "chore",
+        [
+            "chore",
+            "merge",
+            "wip",
+            "initial",
+            "init",
+            "scaffold",
+            "setup",
+            "dependency",
+            "deps",
+            "update",
+            "upgrade",
+            "lock",
+        ],
+    ),
 ]
 
 VERSION_TAG_PATTERN = re.compile(r"v?(\d+)\.(\d+)(?:\.(\d+))?", re.IGNORECASE)
@@ -71,43 +164,48 @@ def group_commits(commits: list[dict]) -> list[dict]:
         type_counts = _count_types(week_commits)
         milestones = _find_milestones(week_commits)
 
-        groups.append({
-            "week_key": f"{year}-W{week:02d}",
-            "label": label,
-            "commits": week_commits,
-            "commit_count": len(week_commits),
-            "type_counts": type_counts,
-            "milestones": milestones,
-            "is_milestone_week": bool(milestones),
-            "date_from": min(c["date"] for c in week_commits).strftime("%b %d"),
-            "date_to": max(c["date"] for c in week_commits).strftime("%b %d, %Y"),
-        })
+        groups.append(
+            {
+                "week_key": f"{year}-W{week:02d}",
+                "label": label,
+                "commits": week_commits,
+                "commit_count": len(week_commits),
+                "type_counts": type_counts,
+                "milestones": milestones,
+                "is_milestone_week": bool(milestones),
+                "date_from": min(c["date"] for c in week_commits).strftime("%b %d"),
+                "date_to": max(c["date"] for c in week_commits).strftime("%b %d, %Y"),
+            }
+        )
 
     # Attach undated commits as their own group
     if undated:
         type_counts = _count_types(undated)
-        groups.append({
-            "week_key": "undated",
-            "label": "Undated Commits",
-            "commits": undated,
-            "commit_count": len(undated),
-            "type_counts": type_counts,
-            "milestones": [],
-            "is_milestone_week": False,
-            "date_from": "",
-            "date_to": "",
-        })
+        groups.append(
+            {
+                "week_key": "undated",
+                "label": "Undated Commits",
+                "commits": undated,
+                "commit_count": len(undated),
+                "type_counts": type_counts,
+                "milestones": [],
+                "is_milestone_week": False,
+                "date_from": "",
+                "date_to": "",
+            }
+        )
 
     return groups
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
+
 def _classify_single(message: str) -> str:
     msg_lower = message.lower().strip()
     for type_key, keywords in KEYWORD_RULES:
         for kw in keywords:
-            if kw in msg_lower:
+            if re.search(rf"\b{re.escape(kw)}\b", msg_lower):
                 return type_key
     return "chore"
 
@@ -123,6 +221,7 @@ def _week_label(year: int, week: int, commits: list[dict]) -> str:
     try:
         # Monday of that ISO week
         from datetime import date
+
         d = date.fromisocalendar(year, week, 1)
         return d.strftime("Week of %b %d, %Y")
     except Exception:
@@ -143,12 +242,21 @@ def _find_milestones(commits: list[dict]) -> list[dict]:
         for tag in commit.get("tags", []):
             m = VERSION_TAG_PATTERN.match(tag)
             if m:
-                milestones.append({"tag": tag, "commit": commit["hash"], "message": commit["message"]})
+                milestones.append(
+                    {"tag": tag, "commit": commit["hash"], "message": commit["message"]}
+                )
         # Version bump in message
         if VERSION_TAG_PATTERN.search(commit["message"]) and any(
-            kw in commit["message"].lower() for kw in ["release", "version", "bump", "tag", "v1", "v2", "v3"]
+            kw in commit["message"].lower()
+            for kw in ["release", "version", "bump", "tag", "v1", "v2", "v3"]
         ):
-            milestones.append({"tag": commit["message"][:40], "commit": commit["hash"], "message": commit["message"]})
+            milestones.append(
+                {
+                    "tag": commit["message"][:40],
+                    "commit": commit["hash"],
+                    "message": commit["message"],
+                }
+            )
     return milestones
 
 
@@ -199,9 +307,7 @@ def build_contribution_insights(commits: list[dict], groups: list[dict]) -> dict
     return {
         "total_commits": len(commits),
         "contributors_count": len(contributors),
-        "top_contributors": [
-            {"name": name, "commits": count} for name, count in top_contributors
-        ],
+        "top_contributors": [{"name": name, "commits": count} for name, count in top_contributors],
         "type_breakdown": [
             {
                 "type": type_key,
