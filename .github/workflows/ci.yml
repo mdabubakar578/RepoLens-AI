@@ -1,0 +1,54 @@
+name: quality
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ENABLE_DEMO_DATA: "false"
+      GEMINI_API_KEY: ""
+      RAG_USE_EMBEDDINGS: "false"
+      SECRET_KEY: "ci-only-secret-key"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install development dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Verify dependency consistency
+        run: python -m pip check
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Compile
+        run: python -m compileall -q app.py cli.py config.py database.py wsgi.py pages services benchmarks tests
+
+      - name: Test with coverage
+        run: python -m coverage run --source=app,config,database,pages,services,benchmarks -m pytest -q
+
+      - name: Enforce full-project coverage
+        run: python -m coverage report --fail-under=70
+
+      - name: Enforce Phase II agent coverage
+        run: >-
+          python -m coverage report
+          --include=services/investigator.py,services/knowledge_graph.py,services/rag_service.py,services/repository_indexer.py,services/qa_service.py
+          --fail-under=80
+
+      - name: Run deterministic benchmark
+        run: python -m benchmarks.runner --check --output /tmp/repolens-evaluation.json

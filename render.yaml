@@ -4,11 +4,24 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements-render.txt
-    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --timeout 120
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread --timeout 90
+    healthCheckPath: /health
     envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
       - key: FLASK_DEBUG
         value: false
       - key: LOG_LEVEL
         value: INFO
       - key: GEMINI_MODEL
-        value: gemini-2.0-flash
+        value: gemini-2.5-flash
+      - key: ANALYSIS_WORKERS
+        value: 2
+      - key: ANALYSIS_QUEUE_SIZE
+        value: 6
+      - key: RAG_USE_EMBEDDINGS
+        value: false
+      - key: AI_TIMEOUT_SECONDS
+        value: 20

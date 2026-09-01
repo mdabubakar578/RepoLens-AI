@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*
+!.env.example
 
 # Python Virtual Environments
 venv/
@@ -31,6 +32,7 @@ data/*.sqlite3
 # Caching and Temp Files
 cache/
 temp/
+.repolens/
 .pytest_cache/
 .coverage
 htmlcov/
