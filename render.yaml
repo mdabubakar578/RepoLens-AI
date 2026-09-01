@@ -25,3 +25,7 @@ services:
         value: false
       - key: AI_TIMEOUT_SECONDS
         value: 20
+      # Free-tier storage is ephemeral, so the database resets on every
+      # restart. Seeded demo analyses keep the hosted demo explorable.
+      - key: ENABLE_DEMO_DATA
+        value: true
