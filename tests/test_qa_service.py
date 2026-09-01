@@ -98,10 +98,11 @@ def test_index_rebuild_restores_evidence_from_archive(monkeypatch, tmp_path):
     monkeypatch.setattr("services.qa_service.config.INDEX_CACHE_DIR", str(tmp_path))
     monkeypatch.setattr("services.rag_service.config.INDEX_CACHE_DIR", str(tmp_path))
     monkeypatch.setattr("services.qa_service.database.get_extended_data", lambda _: {})
-    monkeypatch.setattr(
-        "services.qa_service.fetch_repository_archive",
-        lambda owner, repo, branch: ([], {"app.py": "def create_app():\n    return 1\n"}),
-    )
+    def archive(owner, repo, branch, selector=None):
+        assert selector is not None, "archive recovery must reuse the shared selection policy"
+        return [], {"app.py": "def create_app():\n    return 1\n"}
+
+    monkeypatch.setattr("services.qa_service.fetch_repository_archive", archive)
 
     rebuilt = RepositoryQAService._rebuild_index_if_missing(
         7, {"repo_url": "https://github.com/owner/repository"}
@@ -115,7 +116,7 @@ def test_index_rebuild_reports_failure_without_raising(monkeypatch, tmp_path):
     monkeypatch.setattr("services.qa_service.config.INDEX_CACHE_DIR", str(tmp_path))
     monkeypatch.setattr("services.qa_service.database.get_extended_data", lambda _: {})
 
-    def explode(*_args):
+    def explode(*_args, **_kwargs):
         raise RuntimeError("archive unavailable")
 
     monkeypatch.setattr("services.qa_service.fetch_repository_archive", explode)

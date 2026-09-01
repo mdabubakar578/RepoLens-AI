@@ -14,6 +14,7 @@ from services.github_service import extract_owner_repo, fetch_repository_archive
 from services.investigator import Investigation, RepositoryInvestigator
 from services.knowledge_graph import KnowledgeGraph
 from services.rag_service import RAGService
+from services.repository_indexer import select_index_files
 
 logger = logging.getLogger("repolens.qa")
 
@@ -136,7 +137,9 @@ class RepositoryQAService:
             owner, repo = extract_owner_repo(repo_url)
             metadata = database.get_extended_data(analysis_id).get("metadata") or {}
             branch = metadata.get("default_branch", "main")
-            _, contents = fetch_repository_archive(owner, repo, branch)
+            _, contents = fetch_repository_archive(
+                owner, repo, branch, selector=select_index_files
+            )
             if not contents:
                 return False
             RAGService().index_repository(str(analysis_id), contents)

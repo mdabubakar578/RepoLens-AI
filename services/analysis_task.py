@@ -27,7 +27,7 @@ from services.github_service import (
     parse_from_url,
 )
 from services.repo_analyzer import analyze_repository
-from services.repository_indexer import build_repository_intelligence
+from services.repository_indexer import build_repository_intelligence, select_index_files
 
 logger = logging.getLogger("repolens.task")
 _ANALYSIS_POOL = ThreadPoolExecutor(
@@ -152,7 +152,9 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                     logger.info(
                         "Task %s: file tree unavailable; using archive fallback.", analysis_id
                     )
-                    file_tree, archive_sources = fetch_repository_archive(owner, repo, branch)
+                    file_tree, archive_sources = fetch_repository_archive(
+                        owner, repo, branch, selector=select_index_files
+                    )
 
                 # Code Analysis
                 if file_tree:
@@ -180,7 +182,7 @@ def _run_analysis(analysis_id: int, input_mode: str, input_data: str, format_pre
                             "Task %s: source fetch sparse; using archive fallback.", analysis_id
                         )
                         archive_tree, archive_contents = fetch_repository_archive(
-                            owner, repo, branch
+                            owner, repo, branch, selector=select_index_files
                         )
                         if archive_tree and not file_tree:
                             file_tree = archive_tree

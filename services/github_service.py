@@ -17,6 +17,7 @@ import re
 import shutil
 import tempfile
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from urllib.error import HTTPError, URLError
@@ -178,8 +179,25 @@ def fetch_file_content(owner: str, repo: str, path: str, branch: str = "main") -
     return None
 
 
-def fetch_repository_archive(owner: str, repo: str, branch: str = "main") -> tuple[list[dict], dict[str, str]]:
-    """Download one bounded public archive as a REST-quota-independent fallback."""
+def fetch_repository_archive(
+    owner: str,
+    repo: str,
+    branch: str = "main",
+    selector: Callable[[list[dict]], list[str]] | None = None,
+) -> tuple[list[dict], dict[str, str]]:
+    """Download one bounded public archive as a REST-quota-independent fallback.
+
+    Args:
+        owner: Repository owner.
+        repo: Repository name.
+        branch: Branch to download.
+        selector: Optional ranking callable returning the paths worth reading.
+            Application services inject the shared source-selection policy so
+            archive recovery indexes the same files as a normal analysis.
+
+    Returns:
+        The eligible file tree and the decoded contents of the selected files.
+    """
     archive_url = (
         "https://codeload.github.com/"
         f"{quote(owner)}/{quote(repo)}/zip/refs/heads/{quote(branch, safe='')}"
@@ -191,15 +209,18 @@ def fetch_repository_archive(owner: str, repo: str, branch: str = "main") -> tup
             payload = response.read(max_archive_bytes + 1)
         if len(payload) > max_archive_bytes:
             raise RuntimeError("Repository archive is too large for hosted analysis.")
-        return _parse_repository_archive(payload)
+        return _parse_repository_archive(payload, selector)
     except Exception as exc:
         logger.warning("GitHub archive fallback failed: %s", exc)
         return [], {}
 
-def _parse_repository_archive(payload: bytes) -> tuple[list[dict], dict[str, str]]:
+def _parse_repository_archive(
+    payload: bytes,
+    selector: Callable[[list[dict]], list[str]] | None = None,
+) -> tuple[list[dict], dict[str, str]]:
     """Parse a GitHub ZIP payload. Split out for deterministic unit testing."""
     tree: list[dict] = []
-    available: list[tuple[str, zipfile.ZipInfo]] = []
+    entries: dict[str, zipfile.ZipInfo] = {}
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         for info in archive.infolist():
             if info.is_dir():
@@ -211,22 +232,32 @@ def _parse_repository_archive(payload: bytes) -> tuple[list[dict], dict[str, str
             if _should_skip_path(path):
                 continue
             tree.append({"path": path, "type": "blob", "size": info.file_size})
-            available.append((path, info))
+            entries[path] = info
             if len(tree) >= config.MAX_REPO_FILES:
                 break
-        selected = sorted(available, key=lambda item: _archive_content_priority(item[0], item[1].file_size))[:30]
+
+        if selector is not None:
+            selected = [path for path in selector(tree) if path in entries]
+        else:
+            selected = sorted(
+                entries,
+                key=lambda path: _archive_content_priority(path, entries[path].file_size),
+            )[: config.MAX_INDEX_FILES]
+
         contents: dict[str, str] = {}
-        for path, info in selected:
+        for path in selected:
+            info = entries[path]
             if info.file_size > config.MAX_FILE_SCAN_SIZE:
                 continue
             try:
                 raw = archive.read(info)
                 if b"\x00" in raw[:1024]:
                     continue
-                contents[path] = raw.decode("utf-8", errors="replace")[:config.MAX_FILE_SCAN_SIZE]
+                contents[path] = raw.decode("utf-8", errors="replace")[: config.MAX_FILE_SCAN_SIZE]
             except Exception:
                 continue
     return tree, contents
+
 
 def _archive_content_priority(path: str, size: int) -> tuple[int, int, str]:
     lower = path.lower()
