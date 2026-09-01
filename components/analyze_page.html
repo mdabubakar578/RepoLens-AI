@@ -4,7 +4,7 @@
 {% block title %}{{ analysis.repo_name }}{% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{{ url_for('static', filename='chart.min.js') }}"></script>
 <script>
 function toggleGroup(header) {
   const body = header.nextElementSibling;
@@ -24,7 +24,7 @@ function toggleNoise() {
 // Initial state
 document.addEventListener('DOMContentLoaded', () => {
   toggleNoise();
-  
+
   // Velocity Chart
   const ctx = document.getElementById('velocityChart').getContext('2d');
   new Chart(ctx, {
@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
         {
           label: 'Features',
           data: {{ chart_data.features|tojson }},
-          backgroundColor: '#7c3aed',
+          backgroundColor: '#5e6ad2',
           borderRadius: 4
         },
         {
@@ -91,6 +91,9 @@ document.addEventListener('DOMContentLoaded', () => {
         {{ stat_card(analysis.status|title, "Status") }}
       </div>
     </section>
+
+    {% set active_repository_view = "overview" %}
+    {% include "repository_nav.html" %}
 
     <section class="result-grid mt-8">
       <div class="result-sidebar">

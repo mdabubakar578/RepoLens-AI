@@ -9,7 +9,7 @@
   {# ── Format Tabs ──────────────────────────────────────────────────────── #}
   <div class="flex items-center justify-between mb-4" style="flex-wrap:wrap;gap:12px">
     <h2 style="font-size:1rem;font-weight:600;color:var(--text-secondary);margin:0">
-      📖 Generated Narrative
+      Generated narrative
     </h2>
     <div class="tabs" id="narrative-tabs" role="tablist">
       {% for fmt_key, fmt_label in NARRATIVE_FORMATS %}
@@ -20,19 +20,9 @@
                 aria-selected="{{ 'true' if fmt_key == active_format else 'false' }}"
                 aria-controls="panel-{{ fmt_key }}"
                 onclick="switchOutputTab('{{ fmt_key }}')">
-          {% if fmt_key == 'release' %}📋
-          {% elif fmt_key == 'standup' %}☀️
-          {% elif fmt_key == 'onboarding' %}🚀
-          {% elif fmt_key == 'portfolio' %}💼
-          {% endif %}
           {{ fmt_label }}
         </button>
       {% endfor %}
-      {% if ENABLE_QA and analysis.get('id') %}
-      <a href="{{ url_for('qa.qa_page', analysis_id=analysis.id) }}" class="tab-btn" style="text-decoration:none;display:flex;align-items:center;gap:4px">
-        💬 Ask Q&A
-      </a>
-      {% endif %}
     </div>
   </div>
 
@@ -53,12 +43,12 @@
             <a href="{{ url_for('analyze.export', analysis_id=analysis.id, fmt=fmt_key, ext='md') }}"
                class="btn btn--ghost btn--sm"
                id="export-md-{{ fmt_key }}">
-              ⬇️ .md
+              Markdown
             </a>
             <a href="{{ url_for('analyze.export', analysis_id=analysis.id, fmt=fmt_key, ext='txt') }}"
                class="btn btn--ghost btn--sm"
                id="export-txt-{{ fmt_key }}">
-              ⬇️ .txt
+              Text
             </a>
           {% endif %}
         </div>
@@ -72,7 +62,7 @@
         </div>
       {% elif analysis.get('status') == 'error' %}
         <div class="alert alert--error">
-          ❌ {{ analysis.get('error_message', 'Analysis failed. Please try again.') }}
+          Unable to generate: {{ analysis.get('error_message', 'Analysis failed. Please try again.') }}
         </div>
       {% else %}
         <div class="output-panel__body card" style="padding:var(--space-6)">
@@ -90,7 +80,7 @@
     <button class="btn btn--ghost btn--sm"
             id="toggle-readme-btn"
             onclick="toggleReadmeFormat()">
-      📄 Toggle README Format
+      README view
     </button>
     {% if analysis.get('slug') %}
       <!-- url_for for share link -->
@@ -98,7 +88,7 @@
          class="btn btn--ghost btn--sm"
          id="share-link-btn"
          target="_blank">
-        🔗 Copy Share Link
+        Share
       </a>
     {% endif %}
   </div>
@@ -132,6 +122,6 @@ function toggleReadmeFormat() {
     }
   });
   const btn = document.getElementById('toggle-readme-btn');
-  if (btn) btn.textContent = btn.textContent.includes('Raw') ? '📄 Toggle README Format' : '📄 Toggle Raw Text';
+  if (btn) btn.textContent = btn.textContent.includes('Raw') ? 'README view' : 'Raw text';
 }
 </script>

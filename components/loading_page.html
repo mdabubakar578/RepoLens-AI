@@ -13,10 +13,10 @@
       </div>
       
       <h1 style="font-size: 1.5rem; margin-bottom: var(--space-2)">Analyzing Repository</h1>
-      <p class="text-muted" id="status-text">Fetching commits and parsing architecture. This usually takes 10-30 seconds depending on repository size...</p>
+      <p class="text-muted" id="status-text">{{ analysis.stage or "Queued" }}</p>
       
       <div style="margin-top:var(--space-6); background:var(--panel-2); height:4px; border-radius:2px; overflow:hidden; position:relative;">
-        <div id="progress-bar" style="position:absolute; top:0; left:0; height:100%; width:30%; background:var(--accent); border-radius:2px; transition: width 0.5s ease;"></div>
+        <div id="progress-bar" style="position:absolute; top:0; left:0; height:100%; width:{{ analysis.progress or 0 }}%; background:var(--accent); border-radius:2px; transition: width 0.35s ease;"></div>
       </div>
       
       <div class="mt-4">
@@ -33,66 +33,41 @@
 
 {% block extra_js %}
 <script>
-const analysisId = {{ analysis.id }};
   const targetFmt = "{{ fmt }}";
-  // url_for values injected by Jinja for route safety
-  const statusUrl = "{{ url_for('home.status', analysis_id=analysis.id) }}";
-  const resultUrl = "{{ url_for('analyze.result', analysis_id=analysis.id) }}";
-  let pollCount = 0;
-  const progressBar = document.getElementById('progress-bar');
-  const statusText = document.getElementById('status-text');
-
-  const messages = [
-    "Fetching repository metadata and branches...",
-    "Downloading file tree and parsing commits...",
-    "Extracting source code for architecture analysis...",
-    "Detecting frameworks and dependencies...",
-    "Generating AI narratives with Grok...",
-    "Finalizing structural insights and RAG embeddings...",
-    "Almost done, wrapping things up..."
-  ];
-
-  function updateProgress() {
-    pollCount++;
-    
-    // Fake progress bar that slows down
-    const progress = Math.min(30 + (pollCount * 5), 95);
-    progressBar.style.width = `${progress}%`;
-    
-    // Cycle messages
-    if (pollCount < messages.length * 2) {
-      statusText.textContent = messages[Math.floor(pollCount / 2)];
-    }
-  }
+  const statusUrl = "{{ url_for("home.status", analysis_id=analysis.id) }}";
+  const resultUrl = "{{ url_for("analyze.result", analysis_id=analysis.id) }}";
+  const progressBar = document.getElementById("progress-bar");
+  const statusText = document.getElementById("status-text");
+  const pollInfo = document.getElementById("poll-info");
+  const pollStartedAt = Date.now();
 
   async function checkStatus() {
+    const elapsed = Date.now() - pollStartedAt;
+    if (elapsed >= 600000) {
+      statusText.textContent = "This analysis exceeded the interactive wait limit.";
+      pollInfo.textContent = "Open History to check later, or retry the analysis.";
+      return;
+    }
     try {
-      const res = await fetch(`${statusUrl}?t=${Date.now()}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.status === 'done') {
-          progressBar.style.width = '100%';
-          statusText.textContent = "Analysis complete! Redirecting...";
-          setTimeout(() => {
-            // Redirect to result page using Jinja-injected URL
-            window.location.href = `${resultUrl}?fmt=${targetFmt}`;
-          }, 500);
-          return; // Stop polling
-        } else if (data.status === 'error') {
-          // Redirect home; the flash message will show the error
-          window.location.href = '/';
+      const response = await fetch(statusUrl + "?t=" + Date.now(), {cache: "no-store"});
+      if (response.ok) {
+        const data = await response.json();
+        progressBar.style.width = (data.progress || 0) + "%";
+        statusText.textContent = data.stage || "Processing repository";
+        if (data.status === "done") {
+          window.location.href = resultUrl + "?fmt=" + targetFmt;
+          return;
+        }
+        if (data.status === "error") {
+          window.location.href = "/";
           return;
         }
       }
-    } catch (e) {
-      console.error("Polling error:", e);
+    } catch (error) {
+      statusText.textContent = "Connection interrupted. Retrying...";
     }
-    
-    updateProgress();
-    setTimeout(checkStatus, 2500);
+    setTimeout(checkStatus, elapsed < 30000 ? 1000 : 3000);
   }
-
-  // Start polling
-  setTimeout(checkStatus, 2000);
+  checkStatus();
 </script>
 {% endblock %}

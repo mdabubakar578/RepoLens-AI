@@ -8,7 +8,7 @@
   <div class="container">
 
     <!-- Header -->
-    <div class="card animate-fade-in-up" style="margin-bottom:var(--space-6)">
+    <div class="repository-header animate-fade-in-up" style="margin-bottom:var(--space-6)">
       <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:12px">
         <div>
           <p class="section-label">Repository Risk Dashboard</p>
@@ -22,6 +22,9 @@
         </div>
       </div>
     </div>
+
+    {% set active_repository_view = "risk" %}
+    {% include "repository_nav.html" %}
 
     <!-- Complexity Metrics -->
     {% if arch_data and arch_data.get('complexity_metrics') %}
@@ -69,7 +72,7 @@
     <div class="grid-2" style="gap:var(--space-6)">
       <!-- Risk Warnings -->
       <div class="card animate-fade-in-up">
-        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">🚨 Top Risk Observations</h2>
+        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">Top risk observations</h2>
         {% if tech_data.get('risk_items') %}
           {% for risk in tech_data.risk_items %}
           <div style="margin-bottom:var(--space-4);padding:var(--space-3);background:var(--bg-surface);border-left:4px solid {% if risk.severity == 'CRITICAL' %}var(--accent-red){% elif risk.severity == 'HIGH' %}var(--accent-orange){% elif risk.severity == 'MEDIUM' %}var(--accent-yellow){% else %}var(--accent-blue){% endif %};border-radius:0 var(--radius-md) var(--radius-md) 0">
@@ -92,7 +95,7 @@
 
       <!-- Hotspots -->
       <div class="card animate-fade-in-up">
-        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">🔥 Churn Hotspots</h2>
+        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">Churn hotspots</h2>
         {% if tech_data.get('hotspots') %}
           <div style="max-height:400px;overflow-y:auto;padding-right:var(--space-2)">
             {% for spot in tech_data.hotspots %}
@@ -146,7 +149,7 @@
       <!-- Process & Quality -->
       {% if tech_data.get('commit_quality') %}
       <div class="card animate-fade-in-up">
-        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">📝 Process Quality</h2>
+        <h2 style="font-size:1.1rem;margin-bottom:var(--space-4)">Process quality</h2>
         <div class="flex items-center gap-4 mb-4">
           <div style="font-size:2.5rem;font-weight:800;color: {% if tech_data.commit_quality.grade == 'A' %}var(--accent-green){% elif tech_data.commit_quality.grade == 'B' %}var(--accent-blue){% elif tech_data.commit_quality.grade == 'C' %}var(--accent-yellow){% else %}var(--accent-red){% endif %}">
             {{ tech_data.commit_quality.grade }}

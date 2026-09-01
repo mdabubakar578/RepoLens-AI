@@ -1,41 +1,26 @@
 {% extends "layout.html" %}
 
 {% block title %}Analyze Repository History{% endblock %}
-{% block meta_description %}RepoLens AI turns fragmented git history into release notes, project stories, and onboarding-ready summaries.{% endblock %}
+{% block meta_description %}RepoLens AI analyses GitHub commits, source structure, architecture, risk, and repository questions with inspectable evidence.{% endblock %}
 
 {% block content %}
 <section class="page-content">
   <div class="container">
     <section class="hero-shell animate-fade-in-up">
       <div class="hero-copy">
-        <span class="hero-kicker">Developer productivity for messy commit history</span>
-        <h1>Turn commit history into a readable product story.</h1>
+        <span class="hero-kicker"><span class="status-dot" aria-hidden="true"></span> Codebase intelligence</span>
+        <h1>Understand your repository.</h1>
         <p class="hero-lede">
-          RepoLens AI analyzes repository activity, groups work into features,
-          fixes, and refactors, then produces structured narratives that help
-          teams onboard faster, write release notes, and understand how a codebase evolved.
+          Analyze commit history and source structure, inspect architecture and risk,
+          and ask questions against indexed repository evidence.
         </p>
-        <div class="stats-bar">
-          <div class="stat-item">
-            <span class="stat-item__value">4</span>
-            <span class="stat-item__label">Narrative Views</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-item__value">3</span>
-            <span class="stat-item__label">Input Modes</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-item__value">500</span>
-            <span class="stat-item__label">Commit Limit</span>
-          </div>
-        </div>
       </div>
 
       <div class="card hero-form">
         <div class="hero-form__header">
           <div>
-            <p class="hero-form__eyebrow">New analysis</p>
-            <h2>Analyze a repository</h2>
+            <p class="hero-form__eyebrow"><span class="terminal-dot terminal-dot--green"></span> Repository input</p>
+            <h2>Repository details</h2>
           </div>
           <p class="text-sm">
             Use a GitHub repository URL, upload a saved git log, or paste raw history.
@@ -95,93 +80,29 @@
             </div>
           </div>
 
-          <div class="grid-2 mt-6">
-            <div class="form-group">
-              <label class="form-label" for="format_pref">Default output view</label>
-              <select class="form-select" id="format_pref" name="format_pref">
-                {% for fmt_key, fmt_label in NARRATIVE_FORMATS %}
-                <option value="{{ fmt_key }}">{{ fmt_label }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">What you get</label>
-              <div class="hero-form__summary">
-                Release notes, standups, onboarding stories, and portfolio-ready summaries from one analysis run.
-              </div>
-            </div>
+          <div class="form-group mt-6">
+            <label class="form-label" for="format_pref">Open results in</label>
+            <select class="form-select" id="format_pref" name="format_pref">
+              {% for fmt_key, fmt_label in NARRATIVE_FORMATS %}
+              <option value="{{ fmt_key }}">{{ fmt_label }}</option>
+              {% endfor %}
+            </select>
           </div>
 
           <button type="submit" class="btn btn--primary btn--lg btn--full mt-6" id="generate-btn">
-            Generate Story
+            Analyze repository <span aria-hidden="true">→</span>
           </button>
         </form>
       </div>
     </section>
 
-    <section class="grid-3 mt-8 stagger-children">
-      <article class="card">
-        <p class="section-label">Workflow</p>
-        <h3>From repo URL to narrative output</h3>
-        <p>
-          Submit a repository, extract commits, classify work into meaningful buckets,
-          and render polished summaries that fit directly into team workflows.
-        </p>
-      </article>
-      <article class="card">
-        <p class="section-label">Signals</p>
-        <h3>Features, bug fixes, refactors, and milestones</h3>
-        <p>
-          Grouping logic highlights how the project changed over time, which contributors
-          shaped it, and when notable releases landed.
-        </p>
-      </article>
-      <article class="card">
-        <p class="section-label">Impact</p>
-        <h3>Less manual reporting, faster onboarding</h3>
-        <p>
-          Teams spend less time decoding raw history and more time understanding product evolution.
-        </p>
-      </article>
-    </section>
-
-    <section class="card workflow-card mt-8 animate-fade-in">
-      <div class="workflow-card__header">
-        <div>
-          <p class="section-label">How it works</p>
-          <h2>Built for the moments when commit history gets noisy.</h2>
-        </div>
-        <p class="workflow-card__text">
-          The app keeps development simple: page-level routes contain the page logic,
-          shared templates handle repeated UI, and one central config file controls setup.
-        </p>
-      </div>
-
-      <div class="workflow-steps">
-        <div class="workflow-step">
-          <span class="workflow-step__index">01</span>
-          <h3>Ingest</h3>
-          <p>Load commit history from a repository URL, uploaded file, or pasted log.</p>
-        </div>
-        <div class="workflow-step">
-          <span class="workflow-step__index">02</span>
-          <h3>Analyze</h3>
-          <p>Classify commit intent, detect milestones, and summarize contributor activity.</p>
-        </div>
-        <div class="workflow-step">
-          <span class="workflow-step__index">03</span>
-          <h3>Narrate</h3>
-          <p>Generate structured outputs that are easier for humans to scan and reuse.</p>
-        </div>
-      </div>
-    </section>
   </div>
 
   <div class="loading-overlay hidden" id="loading-overlay">
     <div class="skeleton loading-overlay__spinner" style="border-radius: 50%"></div>
     <div class="loading-overlay__text">
-      Extracting commit history and generating narratives.<br />
-      This can take a few seconds for larger repositories.
+      Reading repository data and building the analysis.<br />
+      You can leave this page and return from History.
     </div>
   </div>
 </section>
@@ -197,7 +118,7 @@ function showLoadingState() {
   }
   if (button) {
     button.disabled = true;
-    button.textContent = 'Generating...';
+    button.textContent = 'Submitting...';
   }
 }
 </script>

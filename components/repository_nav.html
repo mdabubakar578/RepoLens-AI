@@ -1,0 +1,25 @@
+{# Shared repository sub-navigation. Requires `analysis`. #}
+<nav class="repository-viewbar" aria-label="Repository analysis views">
+  <a href="{{ url_for('analyze.result', analysis_id=analysis.id) }}"
+     class="{% if active_repository_view == 'overview' %}active{% endif %}">
+    Overview
+  </a>
+  {% if ENABLE_ARCHITECTURE %}
+  <a href="{{ url_for('architecture.architecture', analysis_id=analysis.id) }}"
+     class="{% if active_repository_view == 'architecture' %}active{% endif %}">
+    Architecture
+  </a>
+  {% endif %}
+  {% if ENABLE_RISK %}
+  <a href="{{ url_for('risk.risk_analysis', analysis_id=analysis.id) }}"
+     class="{% if active_repository_view == 'risk' %}active{% endif %}">
+    Risks
+  </a>
+  {% endif %}
+  {% if ENABLE_QA %}
+  <a href="{{ url_for('qa.qa_page', analysis_id=analysis.id) }}"
+     class="{% if active_repository_view == 'qa' %}active{% endif %}">
+    Ask
+  </a>
+  {% endif %}
+</nav>

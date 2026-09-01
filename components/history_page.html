@@ -11,7 +11,7 @@
         <p class="section-label">Saved analyses</p>
         <h1>Analysis history</h1>
         <p>
-          Revisit previous repository stories, compare outputs across projects, and reopen generated narratives.
+          Search and reopen completed repository analyses.
         </p>
       </div>
 
@@ -31,12 +31,12 @@
     </section>
 
     <div class="flex items-center justify-between mt-6" style="flex-wrap:wrap;gap:12px">
-      <p class="text-sm text-muted">{{ total }} analyses found</p>
-      <a href="/" class="btn btn--ghost btn--sm">Start a new analysis</a>
+      <p class="text-sm text-muted">{{ total }} analyses</p>
+      <a href="/" class="btn btn--ghost btn--sm">New analysis</a>
     </div>
 
     {% if analyses %}
-    <section class="grid-3 mt-6 stagger-children">
+    <section class="analysis-list">
       {% for analysis in analyses %}
         {% include "commit_card.html" %}
       {% endfor %}

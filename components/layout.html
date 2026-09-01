@@ -3,24 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#08090a" />
   <meta name="description" content="{% block meta_description %}{{ APP_TAGLINE }}{% endblock %}" />
   <meta property="og:title" content="{% block og_title %}{{ APP_NAME }}{% endblock %}" />
   <meta property="og:description" content="{{ APP_TAGLINE }}" />
   <meta property="og:type" content="website" />
   <title>{% block title %}{{ APP_NAME }}{% endblock %} — {{ APP_NAME }}</title>
-  <link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/linear-theme.css" />
   {% block extra_head %}{% endblock %}
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
 
   <nav class="navbar" role="navigation" aria-label="Main navigation">
     <div class="navbar__inner">
       <a href="/" class="navbar__brand" id="nav-brand">
-        <div class="navbar__brand-icon">🔍</div>
-        {{ APP_NAME }}
+        <span class="navbar__brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.25"/><path d="m15.2 15.2 4.3 4.3M7.5 8.5h6M7.5 11h4.5"/></svg></span>
+        <span>{{ APP_NAME }}</span>
       </a>
-      <ul class="navbar__nav">
+      <button class="navbar__menu" type="button" aria-label="Toggle navigation" aria-expanded="false" aria-controls="primary-navigation" onclick="toggleNavigation(this)"><span></span><span></span><span></span></button>
+      <ul class="navbar__nav" id="primary-navigation">
         <li><a href="/" id="nav-home"
                class="{% if request.endpoint and request.endpoint.startswith('home') %}active{% endif %}">
           Home
@@ -35,7 +39,8 @@
                class="{% if request.endpoint and request.endpoint.startswith('about') %}active{% endif %}">
           About
         </a></li>
-        <li><a href="/" class="navbar__cta" id="nav-cta">+ New Analysis</a></li>
+        <li><button class="command-trigger" type="button" onclick="setCommandPalette(true)" aria-haspopup="dialog"><span>Search</span><kbd>⌘K</kbd></button></li>
+        <li><a href="/" class="navbar__cta" id="nav-cta"><span aria-hidden="true">＋</span> Analyze repo</a></li>
       </ul>
     </div>
   </nav>
@@ -63,15 +68,36 @@
   </main>
 
   <footer class="footer">
-    <div>
-      Built with
-      <a href="https://ai.google.dev/" target="_blank" rel="noopener">Gemini AI</a>
-      &nbsp;·&nbsp;
-      <a href="/about">How it works</a>
-      &nbsp;·&nbsp;
-      <span style="color:var(--text-muted)">{{ APP_NAME }} v{{ APP_VERSION }}</span>
+    <div class="footer__inner">
+      <div class="footer__brand">{{ APP_NAME }}</div>
+      <div class="footer__links"><a href="/about">About</a><span>v{{ APP_VERSION }}</span></div>
     </div>
   </footer>
+
+
+  <div class="command-palette" id="command-palette" hidden onclick="closePaletteFromBackdrop(event)">
+    <div class="command-palette__dialog" role="dialog" aria-modal="true" aria-labelledby="command-title">
+      <div class="command-palette__search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
+        <label class="sr-only" for="command-input" id="command-title">Navigate RepoLens</label>
+        <input id="command-input" type="search" placeholder="Search pages and actions…" autocomplete="off" oninput="filterCommands(this.value)" />
+        <span class="command-palette__hint">Esc</span>
+      </div>
+      <div class="command-palette__list" id="command-list">
+        <a class="command-palette__item is-selected" href="/" data-command="analyze new repository home">
+          <span>New repository analysis</span><span class="command-palette__hint">N</span>
+        </a>
+        {% if ENABLE_HISTORY %}
+        <a class="command-palette__item" href="/history" data-command="history saved previous analyses">
+          <span>Analysis history</span><span class="command-palette__hint">G H</span>
+        </a>
+        {% endif %}
+        <a class="command-palette__item" href="/about" data-command="about how it works">
+          <span>About RepoLens</span>
+        </a>
+      </div>
+    </div>
+  </div>
 
   <script>
     function copyToClipboard(targetId) {
@@ -80,7 +106,7 @@
       const text = el.innerText || el.value || '';
       navigator.clipboard.writeText(text).then(() => {
         const btn = document.getElementById('copy-btn-' + targetId);
-        if (btn) { const orig = btn.innerHTML; btn.innerHTML = '✅ Copied!'; setTimeout(() => { btn.innerHTML = orig; }, 2000); }
+        if (btn) { const orig = btn.innerHTML; btn.innerHTML = 'Copied'; setTimeout(() => { btn.innerHTML = orig; }, 2000); }
       });
     }
     function switchTab(groupId, tabKey) {
@@ -102,6 +128,76 @@
       const body = el.parentElement.querySelector('.timeline-group__body');
       const arrow = el.querySelector('.toggle-arrow');
       if (body) { const isOpen = body.style.display !== 'none'; body.style.display = isOpen ? 'none' : 'block'; if (arrow) arrow.textContent = isOpen ? '▶' : '▼'; }
+    }
+
+    let commandTrigger = null;
+    function setCommandPalette(open) {
+      const palette = document.getElementById('command-palette');
+      const input = document.getElementById('command-input');
+      if (!palette) return;
+      if (open) {
+        commandTrigger = document.activeElement;
+        palette.hidden = false;
+        document.body.style.overflow = 'hidden';
+        filterCommands('');
+        window.setTimeout(() => input?.focus(), 0);
+      } else {
+        palette.hidden = true;
+        document.body.style.overflow = '';
+        commandTrigger?.focus();
+      }
+    }
+    function closePaletteFromBackdrop(event) {
+      if (event.target.id === 'command-palette') setCommandPalette(false);
+    }
+    function filterCommands(value) {
+      const query = value.trim().toLowerCase();
+      const items = [...document.querySelectorAll('[data-command]')];
+      let firstVisible = null;
+      items.forEach(item => {
+        const visible = !query || item.dataset.command.includes(query);
+        item.hidden = !visible;
+        item.classList.remove('is-selected');
+        if (visible && !firstVisible) firstVisible = item;
+      });
+      firstVisible?.classList.add('is-selected');
+    }
+    function moveCommandSelection(offset) {
+      const items = [...document.querySelectorAll('[data-command]:not([hidden])')];
+      if (!items.length) return;
+      const currentIndex = items.findIndex(item => item.classList.contains('is-selected'));
+      const nextIndex = (currentIndex + offset + items.length) % items.length;
+      items.forEach(item => item.classList.remove('is-selected'));
+      items[nextIndex].classList.add('is-selected');
+      items[nextIndex].scrollIntoView({ block: 'nearest' });
+    }
+    function activateSelectedCommand() {
+      const selected = document.querySelector('[data-command].is-selected:not([hidden])');
+      selected?.click();
+    }
+    document.addEventListener('keydown', event => {
+      const paletteOpen = document.getElementById('command-palette')?.hidden === false;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setCommandPalette(!paletteOpen);
+      } else if (paletteOpen && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+        event.preventDefault();
+        moveCommandSelection(event.key === 'ArrowDown' ? 1 : -1);
+      } else if (paletteOpen && event.key === 'Enter') {
+        event.preventDefault();
+        activateSelectedCommand();
+      } else if (event.key === 'Escape' && paletteOpen) {
+        setCommandPalette(false);
+      } else if (event.key.toLowerCase() === 'n' && !event.metaKey && !event.ctrlKey &&
+                 !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+        window.location.href = '/';
+      }
+    });
+    function toggleNavigation(button) {
+      const navigation = document.getElementById("primary-navigation");
+      const isOpen = button.getAttribute("aria-expanded") === "true";
+      button.setAttribute("aria-expanded", String(!isOpen));
+      navigation.classList.toggle("is-open", !isOpen);
     }
   </script>
 

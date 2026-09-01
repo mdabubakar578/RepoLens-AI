@@ -48,18 +48,18 @@
   <button class="btn btn--ghost btn--sm"
           onclick="copyToClipboard('{{ target_id }}')"
           id="copy-btn-{{ target_id }}">
-    📋 {{ label }}
+    {{ label }}
   </button>
 {% endmacro %}
 
 {# ── Status Badge ───────────────────────────────────────────────────────── #}
 {% macro status_badge(status) %}
   {% if status == 'done' %}
-    <span class="badge badge--test">✅ Done</span>
+    <span class="badge badge--test"><span class="status-dot" aria-hidden="true"></span>Done</span>
   {% elif status == 'pending' %}
-    <span class="badge badge--devops">⏳ Processing</span>
+    <span class="badge badge--devops"><span class="status-dot status-dot--pending" aria-hidden="true"></span>Processing</span>
   {% elif status == 'error' %}
-    <span class="badge badge--bugfix">❌ Error</span>
+    <span class="badge badge--bugfix"><span class="status-dot status-dot--error" aria-hidden="true"></span>Error</span>
   {% else %}
     <span class="badge badge--chore">{{ status }}</span>
   {% endif %}

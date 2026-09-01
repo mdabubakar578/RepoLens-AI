@@ -7,7 +7,7 @@
 <section class="page-content">
   <div class="container container--narrow">
 
-    <div class="card animate-fade-in-up" style="margin-bottom:var(--space-6)">
+    <div class="repository-header animate-fade-in-up" style="margin-bottom:var(--space-6)">
       <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:12px">
         <div>
           <p class="section-label">Repository Q&A</p>
@@ -21,9 +21,12 @@
       </div>
     </div>
 
+    {% set active_repository_view = "qa" %}
+    {% include "repository_nav.html" %}
+
     <!-- Suggested Questions -->
     <div class="card animate-fade-in-up" style="margin-bottom:var(--space-6)">
-      <h2 style="font-size:1rem;margin-bottom:var(--space-3);color:var(--text-secondary)">💡 Try asking...</h2>
+      <h2 style="font-size:1rem;margin-bottom:var(--space-3);color:var(--text-secondary)">Try asking</h2>
       <div class="flex gap-2 wrap">
         <button class="btn btn--ghost btn--sm suggested-q" onclick="askSuggested(this)">Where is authentication implemented?</button>
         <button class="btn btn--ghost btn--sm suggested-q" onclick="askSuggested(this)">How does the database connection work?</button>
@@ -61,6 +64,45 @@
 const ANALYSIS_ID = {{ analysis.id }};
 // url_for injected by Jinja for route safety
 const ASK_URL = "{{ url_for('qa.ask_question', analysis_id=analysis.id) }}";
+const SESSION_KEY = `repolens_qa_${ANALYSIS_ID}`;
+
+document.addEventListener('DOMContentLoaded', () => {
+  const stored = sessionStorage.getItem(SESSION_KEY);
+  if (stored) {
+    try {
+      const messages = JSON.parse(stored);
+      messages.forEach(msg => {
+        addMessage(msg.type, msg.content, msg.id, msg.sources, msg.warning, msg.trace, msg.confidence, msg.confidenceLabel, msg.intent, false);
+      });
+    } catch (e) {
+      console.error('Failed to load chat history', e);
+    }
+  }
+  
+  // Add Clear Chat button
+  const form = document.getElementById('qa-form');
+  const clearBtn = document.createElement('button');
+  clearBtn.type = 'button';
+  clearBtn.className = 'btn btn--ghost';
+  clearBtn.textContent = 'Clear Chat';
+  clearBtn.onclick = clearChat;
+  form.appendChild(clearBtn);
+});
+
+function clearChat() {
+  sessionStorage.removeItem(SESSION_KEY);
+  document.getElementById('chat-messages').innerHTML = '';
+}
+
+function saveMessageToSession(msg) {
+  let stored = [];
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (raw) stored = JSON.parse(raw);
+  } catch (e) {}
+  stored.push(msg);
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(stored));
+}
 
 function askSuggested(btn) {
   document.getElementById('qa-input').value = btn.textContent.trim();
@@ -75,7 +117,7 @@ async function submitQuestion(e) {
 
   const submitBtn = document.getElementById('qa-submit');
   submitBtn.disabled = true;
-  submitBtn.textContent = '⏳';
+  submitBtn.textContent = 'Working…';
 
   // Add user message
   addMessage('user', question);
@@ -109,7 +151,7 @@ async function submitQuestion(e) {
       addMessage('error', data.error);
     } else {
       const safeSources = Array.isArray(data.sources) ? data.sources : [];
-      addMessage('assistant', data.answer || 'No answer available.', null, safeSources, data.warning);
+      addMessage('assistant', data.answer || 'No answer available.', null, safeSources, data.warning, data.agent_trace || [], data.confidence || 0, data.confidence_label || 'Low', data.intent || 'lookup');
     }
   } catch (err) {
     document.getElementById(loadingId)?.remove();
@@ -120,7 +162,10 @@ async function submitQuestion(e) {
   submitBtn.textContent = 'Ask →';
 }
 
-function addMessage(type, content, id, sources = [], warning = null) {
+function addMessage(type, content, id, sources = [], warning = null, trace = [], confidence = 0, confidenceLabel = 'Low', intent = 'lookup', save = true) {
+  if (save && type !== 'loading') {
+    saveMessageToSession({ type, content, id, sources, warning, trace, confidence, confidenceLabel, intent });
+  }
   const container = document.getElementById('chat-messages');
   const div = document.createElement('div');
   if (id) div.id = id;
@@ -140,7 +185,7 @@ function addMessage(type, content, id, sources = [], warning = null) {
       <div class="skeleton" style="height: 60px; width: 100%; border-radius: var(--radius-sm); max-width: 600px;"></div>
     </div>`;
   } else if (type === 'error') {
-    div.innerHTML = `<div class="alert alert--error" style="max-width:80%">❌ ${escapeHtml(content)}</div>`;
+    div.innerHTML = `<div class="alert alert--error" style="max-width:80%">Error: ${escapeHtml(content)}</div>`;
   } else {
     let sourceHtml = '';
     if (sources && sources.length > 0) {
@@ -166,9 +211,14 @@ function addMessage(type, content, id, sources = [], warning = null) {
       </div>`;
     }
 
+    let agentHtml = `<details open style="margin:var(--space-4) 0;max-width:800px;background:var(--panel-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:var(--space-3) var(--space-4)">
+      <summary style="cursor:pointer;font-weight:600">Investigator · ${escapeHtml(intent)} · ${confidenceLabel} confidence (${confidence}%)</summary>
+      <div style="margin-top:10px">${trace.map(step => `<div style="font-size:.82rem;padding:7px 0;border-bottom:1px solid var(--border)"><strong>${step.step}. ${escapeHtml(step.tool)}</strong> — ${escapeHtml(step.observation)}</div>`).join("") || `<span class="text-muted text-sm">No tool calls were required.</span>`}</div>
+    </details>`;
+
     let warningHtml = '';
     if (warning) {
-      warningHtml = `<div class="alert alert--warning" style="margin-bottom:var(--space-4);font-size:0.85rem;max-width:800px">⚠️ ${escapeHtml(warning)}</div>`;
+      warningHtml = `<div class="alert alert--warning" style="margin-bottom:var(--space-4);font-size:0.85rem;max-width:800px">Note: ${escapeHtml(warning)}</div>`;
     }
 
     div.innerHTML = `<div class="qa-answer" style="width: 100%;">
@@ -176,6 +226,7 @@ function addMessage(type, content, id, sources = [], warning = null) {
         <div style="width:24px;height:24px;border-radius:50%;background:var(--text);display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg></div>
         <span style="font-size:0.85rem;color:var(--text);font-weight:600">RepoLens AI</span>
       </div>
+      ${agentHtml}
       ${warningHtml}
       <div class="markdown-body">${simpleMarkdown(content)}</div>
       ${sourceHtml}
