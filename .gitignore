@@ -49,3 +49,6 @@ logs/
 *.log
 my-log.txt
 .env
+
+# Local MCP setup script (contains API tokens once filled in)
+.claude/setup-mcp.sh
