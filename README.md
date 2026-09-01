@@ -135,9 +135,6 @@ flask --app app run --debug
 
 Hosted URL: https://repolens-ai-9fwr.onrender.com/
 
-Redeploy the latest verified revision and run the deployment checks in
-[docs/submission-checklist.md](docs/submission-checklist.md) before using this URL for evaluation.
-
 ## CLI Usage
 
 Run analysis from the terminal:
@@ -174,24 +171,9 @@ python -m benchmarks.runner --check
 
 The recorded suite has 97 passing tests, 77% whole-project coverage, and 85% combined coverage for the five core agent modules. The controlled offline benchmark records 100% File Recall@5 versus 77.8% for a naive baseline on the questions used while tuning. On a held-out question set the naive baseline also reaches 100% Recall@5, so that advantage does not reproduce out of sample; the measured gain there is in ranking quality (MRR 0.80 versus 0.65). These figures are regression evidence for the included corpus, not universal accuracy.
 
-## Final Submission Package
-
-- [Final report](docs/final-report.md)
-- [Literature review](docs/literature-review.md)
-- [Evaluation methodology](docs/evaluation-methodology.md)
-- [Generated benchmark results](docs/evaluation-results.md)
-- [HTTP concurrency smoke result](docs/load-smoke-results.md)
-- [Examiner readiness review](docs/examiner-evaluation.md)
-- [Presentation outline](docs/presentation-outline.md)
-- [Demonstration script](docs/demo-script.md)
-- [Viva guide](docs/viva-guide.md)
-- [Submission checklist](docs/submission-checklist.md)
-
 ## Technical Notes
 
-For more implementation detail, see [docs/technical-overview.md](docs/technical-overview.md).
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the current code navigation map and dependency rules.
-For the agent design and Phase II scope, see [docs/phase-2-agent.md](docs/phase-2-agent.md).
 
 ---
 

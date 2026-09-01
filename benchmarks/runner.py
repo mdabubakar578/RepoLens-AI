@@ -517,7 +517,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--output",
-        default="docs/evaluation-results.json",
+        default="benchmarks/evaluation-results.json",
         help="JSON result path",
     )
     parser.add_argument("--check", action="store_true", help="Fail if quality gates regress")
@@ -544,7 +544,7 @@ def main() -> int:
 
     if args.ablation:
         ablation = run_ablation()
-        Path("docs/evaluation-ablation.md").write_text(
+        Path("benchmarks/evaluation-ablation.md").write_text(
             _ablation_markdown(ablation) + "\n", encoding="utf-8"
         )
         print("\nablation:")
