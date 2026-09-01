@@ -5,7 +5,7 @@
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='chart.min.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce }}">
 function toggleGroup(header) {
   const body = header.nextElementSibling;
   body.classList.toggle('active');
@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="flex items-center gap-4">
               <div class="flex items-center gap-2">
-                <input type="checkbox" id="toggle-noise" onchange="toggleNoise()" checked>
+                <input type="checkbox" id="toggle-noise" data-on-change="toggleNoise" checked>
                 <label for="toggle-noise" class="text-sm text-muted">Hide noise</label>
               </div>
               <span class="text-sm text-muted">{{ groups|length }} groups</span>
@@ -211,7 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="timeline">
             {% for group in groups %}
             <section class="timeline-group {% if group.is_milestone_week %}timeline-group--milestone{% endif %}">
-              <div class="timeline-group__header" onclick="toggleGroup(this)">
+              <div class="timeline-group__header" data-on-click="toggleGroup" data-pass="element">
                 <div>
                   <div class="timeline-group__title">{{ group.label }}</div>
                   <div class="timeline-group__meta">

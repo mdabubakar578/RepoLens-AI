@@ -46,7 +46,7 @@
 {# ── Copy Button ────────────────────────────────────────────────────────── #}
 {% macro copy_button(target_id, label='Copy') %}
   <button class="btn btn--ghost btn--sm"
-          onclick="copyToClipboard('{{ target_id }}')"
+          data-on-click="copyToClipboard" data-pass="arg" data-arg="{{ target_id }}"
           id="copy-btn-{{ target_id }}">
     {{ label }}
   </button>

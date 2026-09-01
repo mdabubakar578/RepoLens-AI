@@ -5,8 +5,9 @@ Registers all page blueprints, initializes DB, and sets up Jinja2.
 
 import logging
 import os
+import secrets
 
-from flask import Flask, render_template_string
+from flask import Flask, g, render_template_string
 
 import config
 import database
@@ -82,6 +83,15 @@ def create_app():
         logger.error("Unhandled application error", exc_info=error)
         return render_template_string(ERROR_500_HTML, APP_NAME=config.APP_NAME), 500
 
+    @app.before_request
+    def assign_csp_nonce():
+        """Mint one script nonce per request so no inline script needs allowing."""
+        g.csp_nonce = secrets.token_urlsafe(16)
+
+    @app.context_processor
+    def expose_csp_nonce():
+        return {"csp_nonce": getattr(g, "csp_nonce", "")}
+
     @app.after_request
     def add_security_headers(response):
         """Apply browser security defaults without changing application content."""
@@ -95,9 +105,22 @@ def create_app():
             "Permissions-Policy",
             "camera=(), microphone=(), geolocation=()",
         )
+        # Scripts are allowed only by per-request nonce, so injected markup
+        # cannot execute even if it reaches a rendered page. Style attributes
+        # remain inline throughout the templates and are still permitted.
+        nonce = getattr(g, "csp_nonce", "")
         response.headers.setdefault(
             "Content-Security-Policy",
-            "frame-ancestors 'none'; base-uri 'self'",
+            "default-src 'self'; "
+            f"script-src 'self' 'nonce-{nonce}'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "img-src 'self' data:; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "connect-src 'self'; "
+            "form-action 'self'; "
+            "object-src 'none'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'",
         )
         response.headers.setdefault(
             "Strict-Transport-Security",

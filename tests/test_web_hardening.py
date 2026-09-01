@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 import database
@@ -90,6 +92,37 @@ def test_security_headers_are_applied(app):
     assert response.headers["X-Frame-Options"] == "DENY"
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+
+
+def test_script_policy_allows_only_nonced_scripts(app):
+    """Injected markup must not execute, so script-src carries no unsafe-inline."""
+    response = app.test_client().get("/")
+    policy = response.headers["Content-Security-Policy"]
+
+    script_directive = next(
+        part.strip() for part in policy.split(";") if part.strip().startswith("script-src")
+    )
+    assert "'nonce-" in script_directive
+    assert "'unsafe-inline'" not in script_directive
+    assert "'unsafe-eval'" not in script_directive
+    assert "object-src 'none'" in policy
+
+
+def test_each_response_uses_a_fresh_script_nonce(app):
+    client = app.test_client()
+
+    first = client.get("/").headers["Content-Security-Policy"]
+    second = client.get("/").headers["Content-Security-Policy"]
+
+    assert first != second
+
+
+def test_rendered_pages_carry_no_inline_event_handlers(app):
+    """Inline handlers cannot be nonced, so a strict policy would break them."""
+    body = app.test_client().get("/").get_data(as_text=True)
+
+    assert re.search(r"\son[a-z]+\s*=\s*[\"']", body) is None
+    assert 'nonce="' in body
 
 
 def test_health_endpoint_returns_service_identity(app):

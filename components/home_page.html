@@ -27,13 +27,13 @@
           </p>
         </div>
 
-        <form method="post" action="/analyze" enctype="multipart/form-data" onsubmit="showLoadingState()">
+        <form method="post" action="/analyze" enctype="multipart/form-data" data-on-submit="showLoadingState">
           <input type="hidden" name="input_mode" id="input_mode" value="url" />
 
           <div class="mode-tabs mb-6">
-            <button type="button" class="mode-tab-btn active" data-mode="url" onclick="switchMode('url')">Repository URL</button>
-            <button type="button" class="mode-tab-btn" data-mode="file" onclick="switchMode('file')">Upload Log</button>
-            <button type="button" class="mode-tab-btn" data-mode="paste" onclick="switchMode('paste')">Paste Commits</button>
+            <button type="button" class="mode-tab-btn active" data-mode="url" data-on-click="switchMode" data-pass="arg" data-arg="url">Repository URL</button>
+            <button type="button" class="mode-tab-btn" data-mode="file" data-on-click="switchMode" data-pass="arg" data-arg="file">Upload Log</button>
+            <button type="button" class="mode-tab-btn" data-mode="paste" data-on-click="switchMode" data-pass="arg" data-arg="paste">Paste Commits</button>
           </div>
 
           <div class="mode-panel" data-mode="url">
@@ -109,7 +109,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce }}">
 function showLoadingState() {
   const overlay = document.getElementById('loading-overlay');
   const button = document.getElementById('generate-btn');

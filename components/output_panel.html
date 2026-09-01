@@ -19,7 +19,7 @@
                 role="tab"
                 aria-selected="{{ 'true' if fmt_key == active_format else 'false' }}"
                 aria-controls="panel-{{ fmt_key }}"
-                onclick="switchOutputTab('{{ fmt_key }}')">
+                data-on-click="switchOutputTab" data-pass="arg" data-arg="{{ fmt_key }}">
           {{ fmt_label }}
         </button>
       {% endfor %}
@@ -79,7 +79,7 @@
   <div class="mt-4 flex gap-2" style="flex-wrap:wrap">
     <button class="btn btn--ghost btn--sm"
             id="toggle-readme-btn"
-            onclick="toggleReadmeFormat()">
+            data-on-click="toggleReadmeFormat">
       README view
     </button>
     {% if analysis.get('slug') %}
@@ -94,7 +94,7 @@
   </div>
 </section>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 function switchOutputTab(fmt) {
   document.querySelectorAll('#narrative-tabs .tab-btn').forEach(b => {
     b.classList.remove('active');

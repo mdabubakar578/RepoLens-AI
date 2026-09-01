@@ -23,7 +23,7 @@
         <span class="navbar__brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.25"/><path d="m15.2 15.2 4.3 4.3M7.5 8.5h6M7.5 11h4.5"/></svg></span>
         <span>{{ APP_NAME }}</span>
       </a>
-      <button class="navbar__menu" type="button" aria-label="Toggle navigation" aria-expanded="false" aria-controls="primary-navigation" onclick="toggleNavigation(this)"><span></span><span></span><span></span></button>
+      <button class="navbar__menu" type="button" aria-label="Toggle navigation" aria-expanded="false" aria-controls="primary-navigation" data-on-click="toggleNavigation" data-pass="element"><span></span><span></span><span></span></button>
       <ul class="navbar__nav" id="primary-navigation">
         <li><a href="/" id="nav-home"
                class="{% if request.endpoint and request.endpoint.startswith('home') %}active{% endif %}">
@@ -39,7 +39,7 @@
                class="{% if request.endpoint and request.endpoint.startswith('about') %}active{% endif %}">
           About
         </a></li>
-        <li><button class="command-trigger" type="button" onclick="setCommandPalette(true)" aria-haspopup="dialog"><span>Search</span><kbd>⌘K</kbd></button></li>
+        <li><button class="command-trigger" type="button" data-on-click="setCommandPalette" data-pass="arg" data-arg="true" aria-haspopup="dialog"><span>Search</span><kbd>⌘K</kbd></button></li>
         <li><a href="/" class="navbar__cta" id="nav-cta"><span aria-hidden="true">＋</span> Analyze repo</a></li>
       </ul>
     </div>
@@ -75,12 +75,12 @@
   </footer>
 
 
-  <div class="command-palette" id="command-palette" hidden onclick="closePaletteFromBackdrop(event)">
+  <div class="command-palette" id="command-palette" hidden data-on-click="closePaletteFromBackdrop" data-pass="event">
     <div class="command-palette__dialog" role="dialog" aria-modal="true" aria-labelledby="command-title">
       <div class="command-palette__search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
         <label class="sr-only" for="command-input" id="command-title">Navigate RepoLens</label>
-        <input id="command-input" type="search" placeholder="Search pages and actions…" autocomplete="off" oninput="filterCommands(this.value)" />
+        <input id="command-input" type="search" placeholder="Search pages and actions…" autocomplete="off" data-on-input="filterCommands" data-pass="value" />
         <span class="command-palette__hint">Esc</span>
       </div>
       <div class="command-palette__list" id="command-list">
@@ -99,7 +99,34 @@
     </div>
   </div>
 
-  <script>
+  <script nonce="{{ csp_nonce }}">
+    // Inline handlers cannot be allowed by a script nonce, so behaviour is
+    // declared with data-on-* attributes and dispatched here by delegation.
+    // data-pass selects what the named function receives.
+    (function () {
+      function callHandler(type, event) {
+        const source = event.target instanceof Element ? event.target : null;
+        const node = source && source.closest('[data-on-' + type + ']');
+        if (!node) return;
+        const handler = window[node.getAttribute('data-on-' + type)];
+        if (typeof handler !== 'function') return;
+        switch (node.getAttribute('data-pass')) {
+          case 'element': handler(node); break;
+          case 'event': handler(event); break;
+          case 'value': handler(node.value); break;
+          case 'arg': {
+            const raw = node.getAttribute('data-arg');
+            handler(raw === 'true' ? true : raw === 'false' ? false : raw);
+            break;
+          }
+          default: handler();
+        }
+      }
+      ['click', 'change', 'input', 'submit'].forEach(function (type) {
+        document.addEventListener(type, function (event) { callHandler(type, event); });
+      });
+    })();
+
     function copyToClipboard(targetId) {
       const el = document.getElementById(targetId);
       if (!el) return;

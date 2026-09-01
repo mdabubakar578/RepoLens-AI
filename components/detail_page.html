@@ -40,7 +40,7 @@
             Share this analysis with teammates when they need the project story without opening the raw repository history.
           </p>
           <input class="form-input mt-6" id="share-url" value="{{ share_url }}" readonly />
-          <button class="btn btn--secondary btn--sm mt-4" id="copy-btn-share-url" onclick="copyToClipboard('share-url')">
+          <button class="btn btn--secondary btn--sm mt-4" id="copy-btn-share-url" data-on-click="copyToClipboard" data-pass="arg" data-arg="share-url">
             Copy link
           </button>
 

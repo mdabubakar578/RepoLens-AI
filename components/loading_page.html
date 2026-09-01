@@ -32,7 +32,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce }}">
   const targetFmt = "{{ fmt }}";
   const statusUrl = "{{ url_for("home.status", analysis_id=analysis.id) }}";
   const resultUrl = "{{ url_for("analyze.result", analysis_id=analysis.id) }}";

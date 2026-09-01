@@ -30,7 +30,7 @@ Do not include API keys, private repository content, personal information, or de
 - read-only agent tools and action limit;
 - environment-based secrets;
 - safe client error messages and server-side logging;
-- security response headers;
+- security response headers, including a nonce-based content-security policy;
 - ignored local environment, database, and cache artifacts;
 - stale background-task recovery.
 
@@ -40,6 +40,8 @@ Do not include API keys, private repository content, personal information, or de
 - SQLite and local indexes are designed for a single deployment instance.
 - Git clone and GitHub API access still process untrusted public metadata and must retain timeouts and file limits.
 - Generated prose can be incorrect even when evidence is supplied; citations and warnings must remain visible.
-- The current content-security policy is intentionally minimal because templates contain inline scripts. Moving scripts to static files with nonces would permit a stricter policy.
+- Scripts execute only when they carry the per-request nonce. Inline event handlers were removed in favour of delegated `data-on-*` listeners, so injected markup cannot execute even if it reaches a rendered page.
+- Style attributes remain inline throughout the templates, so `style-src` still allows `unsafe-inline`. Style injection cannot execute script under this policy, but it can still affect presentation.
+- Google Fonts is the only permitted third-party origin, for stylesheets and font files.
 
 Never commit the local environment file, Gemini key, GitHub token, application secret, database, or repository cache.
