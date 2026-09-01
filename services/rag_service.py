@@ -2,29 +2,136 @@
 services/rag_service.py
 =========================
 Retrieval-Augmented Generation for repository Q&A.
-Tier 1: API-based (sends chunked context to Grok). Always available.
+Retrieval uses local FAISS embeddings when available and keyword search otherwise.
 Tier 2: Local FAISS embeddings (optional, if sentence-transformers installed).
 """
+
 from __future__ import annotations
-import logging, os, re, json, ast
-from dataclasses import dataclass, field
+
+import ast
+import json
+import logging
+import os
+import re
+from collections import Counter
+from dataclasses import dataclass
+
 import config
 
+LOCAL_EMBEDDINGS_AVAILABLE = False
 logger = logging.getLogger("repolens.rag")
 
-# Try to import local embedding dependencies
-try:
-    from sentence_transformers import SentenceTransformer
-    import numpy as np
-    LOCAL_EMBEDDINGS_AVAILABLE = True
-except ImportError:
-    LOCAL_EMBEDDINGS_AVAILABLE = False
+TOKEN_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
+CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "can",
+        "could",
+        "did",
+        "do",
+        "does",
+        "for",
+        "from",
+        "how",
+        "i",
+        "if",
+        "in",
+        "into",
+        "is",
+        "it",
+        "me",
+        "of",
+        "on",
+        "or",
+        "should",
+        "that",
+        "the",
+        "this",
+        "to",
+        "was",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "will",
+        "with",
+        "would",
+        "you",
+        "your",
+    }
+)
+CODE_EXTENSIONS = frozenset(
+    {
+        ".c",
+        ".cpp",
+        ".cs",
+        ".css",
+        ".dart",
+        ".ex",
+        ".exs",
+        ".go",
+        ".h",
+        ".html",
+        ".java",
+        ".js",
+        ".json",
+        ".jsx",
+        ".kt",
+        ".kts",
+        ".php",
+        ".py",
+        ".rb",
+        ".rs",
+        ".scala",
+        ".sh",
+        ".sql",
+        ".swift",
+        ".ts",
+        ".tsx",
+        ".vue",
+        ".yaml",
+        ".yml",
+    }
+)
+DOCUMENT_EXTENSIONS = frozenset({".md", ".rst", ".txt"})
+DOCUMENT_QUERY_TERMS = frozenset({"docs", "documentation", "install", "readme", "setup"})
+LOW_VALUE_PATH_PARTS = (
+    ".changeset/",
+    "/fixtures/",
+    "/snapshots/",
+    "changelog",
+    "package-lock",
+)
 
-try:
-    import faiss
-    FAISS_AVAILABLE = True
-except ImportError:
-    FAISS_AVAILABLE = False
+# Try to import local embedding dependencies
+if config.RAG_USE_EMBEDDINGS:
+    try:
+        import numpy as np
+        from sentence_transformers import SentenceTransformer
+
+        LOCAL_EMBEDDINGS_AVAILABLE = True
+    except ImportError:
+        LOCAL_EMBEDDINGS_AVAILABLE = False
+
+FAISS_AVAILABLE = False
+if config.RAG_USE_EMBEDDINGS:
+    try:
+        import faiss
+
+        FAISS_AVAILABLE = True
+    except ImportError:
+        FAISS_AVAILABLE = False
+
 
 @dataclass
 class CodeChunk:
@@ -35,11 +142,15 @@ class CodeChunk:
     chunk_type: str = "code"  # code, docstring, config
     importance_score: float = 1.0
 
+
 @dataclass
 class SearchResult:
     chunk: CodeChunk
     score: float = 0.0
     relevance: str = "medium"
+    matched_terms: tuple[str, ...] = ()
+    term_coverage: float = 0.0
+
 
 class RAGService:
     """Manages code chunking, embedding, and retrieval for repo Q&A."""
@@ -48,6 +159,8 @@ class RAGService:
         self._model = None
         self._index = None
         self._chunks: list[CodeChunk] = []
+        self._chunk_terms: list[Counter[str]] = []
+        self._path_terms: list[set[str]] = []
         self._use_local = LOCAL_EMBEDDINGS_AVAILABLE and FAISS_AVAILABLE
 
     def index_repository(self, analysis_id: str, file_contents: dict[str, str]) -> int:
@@ -59,6 +172,8 @@ class RAGService:
 
         if not self._chunks:
             return 0
+
+        self._prepare_lexical_index()
 
         if self._use_local:
             try:
@@ -74,35 +189,36 @@ class RAGService:
     def save_index(self, analysis_id: str):
         """Serialize index and chunks to disk."""
         try:
-            os.makedirs(".repolens/cache", exist_ok=True)
+            os.makedirs(config.INDEX_CACHE_DIR, exist_ok=True)
             if self._index and self._use_local:
-                faiss.write_index(self._index, f".repolens/cache/{analysis_id}.index")
+                faiss.write_index(self._index, os.path.join(config.INDEX_CACHE_DIR, f"{analysis_id}.index"))
             if self._chunks:
-                with open(f".repolens/cache/{analysis_id}_chunks.json", "w") as f:
+                with open(os.path.join(config.INDEX_CACHE_DIR, f"{analysis_id}_chunks.json"), "w") as f:
                     json.dump([c.__dict__ for c in self._chunks], f)
-        except Exception as e:
-            logger.error(f"Failed to save RAG index for {analysis_id}: {e}")
+        except Exception as exc:
+            logger.error("Failed to save RAG index for %s: %s", analysis_id, exc)
 
     def load_index(self, analysis_id: str) -> bool:
         """Load index and chunks from disk."""
-        idx_path = f".repolens/cache/{analysis_id}.index"
-        chk_path = f".repolens/cache/{analysis_id}_chunks.json"
+        idx_path = os.path.join(config.INDEX_CACHE_DIR, f"{analysis_id}.index")
+        chk_path = os.path.join(config.INDEX_CACHE_DIR, f"{analysis_id}_chunks.json")
         self._chunks = []
         self._index = None
         if os.path.exists(chk_path):
             try:
-                with open(chk_path, "r") as f:
-                    self._chunks = [CodeChunk(**d) for d in json.load(f)]
-            except Exception as e:
-                logger.error(f"Failed to load chunks: {e}")
+                with open(chk_path) as file_handle:
+                    self._chunks = [CodeChunk(**item) for item in json.load(file_handle)]
+                self._prepare_lexical_index()
+            except Exception as exc:
+                logger.error("Failed to load chunks: %s", exc)
                 return False
         if self._use_local and os.path.exists(idx_path):
             try:
                 self._index = faiss.read_index(idx_path)
                 if not self._model:
                     self._model = SentenceTransformer("all-MiniLM-L6-v2")
-            except Exception as e:
-                logger.error(f"Failed to load FAISS index: {e}")
+            except Exception as exc:
+                logger.error("Failed to load FAISS index: %s", exc)
                 self._index = None
         return bool(self._chunks)
 
@@ -113,10 +229,62 @@ class RAGService:
 
         k = top_k or config.RAG_TOP_K
 
+        if len(self._chunk_terms) != len(self._chunks):
+            self._prepare_lexical_index()
+
         if self._use_local and self._index is not None:
             return self._search_faiss(query, k)
 
         return self._search_keyword(query, k)
+
+    @staticmethod
+    def tokenize(text: str) -> list[str]:
+        """Return normalized code-aware terms from prose, paths, or identifiers.
+
+        Both complete identifiers and their snake_case, kebab-case, dotted, or
+        camelCase components are retained. This lets an exact symbol query rank
+        strongly while ordinary natural-language questions still match it.
+        """
+        text = re.sub(r"\bq\s*&\s*a\b", " qa ", text, flags=re.IGNORECASE)
+        terms: list[str] = []
+        for raw_token in TOKEN_PATTERN.findall(text):
+            expanded = CAMEL_BOUNDARY.sub(" ", raw_token)
+            segments = re.split(r"[.\s-]+", expanded)
+            candidates = {raw_token.lower()}
+            for segment in segments:
+                normalized = segment.lower()
+                candidates.add(normalized)
+                candidates.update(part for part in normalized.split("_") if part)
+            terms.extend(
+                term for term in candidates if len(term) >= 2 and term not in STOP_WORDS
+            )
+        return terms
+
+    def _prepare_lexical_index(self) -> None:
+        """Precompute term frequencies so repeated questions remain inexpensive."""
+        self._chunk_terms = [Counter(self.tokenize(chunk.content)) for chunk in self._chunks]
+        self._path_terms = [set(self.tokenize(chunk.file_path)) for chunk in self._chunks]
+
+    @staticmethod
+    def _relevance_label(score: float) -> str:
+        """Map a normalized retrieval score to a user-facing evidence label."""
+        if score >= 0.7:
+            return "high"
+        if score >= 0.4:
+            return "medium"
+        return "low"
+
+    @staticmethod
+    def _rank_and_prune(results: list[SearchResult], top_k: int) -> list[SearchResult]:
+        """Keep deterministic results that remain competitive with the best evidence."""
+        ranked = sorted(
+            results,
+            key=lambda result: (-result.score, result.chunk.file_path, result.chunk.start_line),
+        )
+        if not ranked:
+            return []
+        relative_floor = max(0.24, ranked[0].score * 0.65)
+        return [result for result in ranked if result.score >= relative_floor][:top_k]
 
     def get_context_for_question(self, question: str) -> str:
         """Get formatted context string for a Q&A prompt."""
@@ -153,64 +321,68 @@ class RAGService:
         """Calculate architectural importance score based on file path."""
         score = 1.0
         lower_path = path.lower()
-        if lower_path.endswith(('main.py', 'app.py', 'index.js', 'server.js', 'main.go')):
+        if lower_path.endswith(("main.py", "app.py", "index.js", "server.js", "main.go")):
             score += 0.3
-        if any(p in lower_path for p in ['/services/', '/core/', '/domain/', '/usecases/']):
+        if any(p in lower_path for p in ["/services/", "/core/", "/domain/", "/usecases/"]):
             score += 0.2
-        if any(p in lower_path for p in ['test', 'spec', 'vendor', 'node_modules', '.min.']):
+        if any(p in lower_path for p in ["test", "spec", "vendor", "node_modules", ".min."]):
             score -= 0.4
-        if lower_path.endswith(('.md', '.txt', '.json', '.yaml', '.yml', '.ini')):
+        if lower_path.endswith((".md", ".txt", ".json", ".yaml", ".yml", ".ini")):
             score -= 0.2
+        if any(part in lower_path for part in LOW_VALUE_PATH_PARTS):
+            score -= 0.6
         return round(score, 2)
 
     def _chunk_python(self, path: str, content: str, lines: list[str]) -> list[CodeChunk]:
         """Chunk Python files by AST boundaries, preserving module-level code."""
         chunks = []
-        imp_score = self._calculate_importance(path)
+        importance = self._calculate_importance(path)
         covered = [False] * len(lines)
-        
         try:
             tree = ast.parse(content)
             for node in ast.iter_child_nodes(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                     start = node.lineno - 1
-                    end = getattr(node, 'end_lineno', start + 1)
-                    
-                    # Mark lines as covered
-                    for i in range(start, min(end, len(lines))):
-                        covered[i] = True
-                        
+                    end = getattr(node, "end_lineno", start + 1)
+                    for index in range(start, min(end, len(lines))):
+                        covered[index] = True
                     chunk_text = "\n".join(lines[start:end])
                     if len(chunk_text.strip()) > 20:
-                        chunks.append(CodeChunk(
-                            content=chunk_text[:config.RAG_CHUNK_SIZE * 4],
-                            file_path=path, start_line=start + 1,
-                            end_line=end, chunk_type="code", importance_score=imp_score
-                        ))
-        except Exception:
-            pass
-        
-        # Sweep for uncovered lines (module-level code like imports and app init)
-        i = 0
-        while i < len(lines):
-            if not covered[i] and lines[i].strip():
-                start = i
-                while i < len(lines) and not covered[i]:
-                    i += 1
-                end = i
+                        chunks.append(
+                            CodeChunk(
+                                content=chunk_text[: config.RAG_CHUNK_SIZE * 4],
+                                file_path=path,
+                                start_line=start + 1,
+                                end_line=end,
+                                chunk_type="code",
+                                importance_score=importance,
+                            )
+                        )
+        except (SyntaxError, ValueError):
+            return self._chunk_sliding_window(path, lines)
+
+        index = 0
+        while index < len(lines):
+            if not covered[index] and lines[index].strip():
+                start = index
+                while index < len(lines) and not covered[index]:
+                    index += 1
+                end = index
                 chunk_text = "\n".join(lines[start:end]).strip()
                 if len(chunk_text) > 20:
-                    chunks.append(CodeChunk(
-                        content=chunk_text[:config.RAG_CHUNK_SIZE * 4],
-                        file_path=path, start_line=start + 1,
-                        end_line=end, chunk_type="module", importance_score=imp_score
-                    ))
+                    chunks.append(
+                        CodeChunk(
+                            content=chunk_text[: config.RAG_CHUNK_SIZE * 4],
+                            file_path=path,
+                            start_line=start + 1,
+                            end_line=end,
+                            chunk_type="module",
+                            importance_score=importance,
+                        )
+                    )
             else:
-                i += 1
-        
-        if not chunks:
-            return self._chunk_sliding_window(path, lines)
-        return chunks
+                index += 1
+        return chunks or self._chunk_sliding_window(path, lines)
 
     def _chunk_sliding_window(self, path: str, lines: list[str]) -> list[CodeChunk]:
         """Chunk by sliding window of N lines with overlap."""
@@ -224,11 +396,16 @@ class RAGService:
             end = min(i + window_size, len(lines))
             chunk_text = "\n".join(lines[i:end]).strip()
             if len(chunk_text) > 20:
-                chunks.append(CodeChunk(
-                    content=chunk_text[:config.RAG_CHUNK_SIZE * 4],
-                    file_path=path, start_line=i + 1,
-                    end_line=end, chunk_type="code", importance_score=imp_score
-                ))
+                chunks.append(
+                    CodeChunk(
+                        content=chunk_text[: config.RAG_CHUNK_SIZE * 4],
+                        file_path=path,
+                        start_line=i + 1,
+                        end_line=end,
+                        chunk_type="code",
+                        importance_score=imp_score,
+                    )
+                )
             i += window_size - overlap
 
         return chunks
@@ -236,34 +413,78 @@ class RAGService:
     # ── Search implementations ────────────────────────────────────────────────
 
     def _search_keyword(self, query: str, top_k: int) -> list[SearchResult]:
-        """Simple keyword-based search fallback."""
-        query_terms = set(query.lower().split())
+        """Rank chunks using identifier coverage, path evidence, and code priority."""
+        query_terms = set(self.tokenize(query))
+        if not query_terms:
+            return []
         scored = []
 
-        for chunk in self._chunks:
-            content_lower = chunk.content.lower()
-            path_lower = chunk.file_path.lower()
+        for index, chunk in enumerate(self._chunks):
+            score, matched_terms, term_coverage = self._lexical_evidence(query_terms, index)
+            if score < 0.24:
+                continue
+            scored.append(
+                SearchResult(
+                    chunk=chunk,
+                    score=score,
+                    relevance=self._relevance_label(score),
+                    matched_terms=matched_terms,
+                    term_coverage=term_coverage,
+                )
+            )
 
-            score = 0.0
-            for term in query_terms:
-                if term in content_lower:
-                    score += content_lower.count(term) * 0.1
-                if term in path_lower:
-                    score += 0.5
+        return self._rank_and_prune(scored, top_k)
 
-            if score > 0:
-                # Apply formula: TF-IDF pseudo-score + importance, clamped to 1.0 max
-                base_score = min(score, 1.0)
-                final_score = min(1.0, max(0.0, (base_score * 0.7) + (chunk.importance_score * 0.3)))
-                
-                if final_score >= 0.4:
-                    scored.append(SearchResult(
-                        chunk=chunk, score=final_score,
-                        relevance="high" if final_score > 0.7 else "medium"
-                    ))
+    def _lexical_evidence(
+        self, query_terms: set[str], chunk_index: int
+    ) -> tuple[float, tuple[str, ...], float]:
+        """Measure how completely one chunk explains the meaningful query terms."""
+        frequencies = self._chunk_terms[chunk_index]
+        path_terms = self._path_terms[chunk_index]
+        chunk = self._chunks[chunk_index]
+        content_matches = query_terms.intersection(frequencies)
+        path_matches = query_terms.intersection(path_terms)
+        matched_terms = tuple(sorted(content_matches | path_matches))
+        if not matched_terms:
+            return 0.0, (), 0.0
 
-        scored.sort(key=lambda r: -r.score)
-        return scored[:top_k]
+        term_coverage = len(matched_terms) / len(query_terms)
+        frequency_strength = sum(
+            min(frequencies.get(term, 0), 3) for term in content_matches
+        ) / (3 * len(query_terms))
+        path_coverage = len(path_matches) / len(query_terms)
+        importance = min(1.0, max(0.0, (chunk.importance_score - 0.4) / 1.1))
+        extension = os.path.splitext(chunk.file_path)[1].lower()
+        code_bonus = 0.06 if extension in CODE_EXTENSIONS else 0
+        definition_bonus = 0.1 if self._contains_definition(chunk.content, query_terms) else 0
+
+        score = (
+            0.52 * term_coverage
+            + 0.10 * frequency_strength
+            + 0.13 * path_coverage
+            + 0.09 * importance
+            + code_bonus
+            + definition_bonus
+        )
+        if extension in DOCUMENT_EXTENSIONS and not query_terms.intersection(DOCUMENT_QUERY_TERMS):
+            score *= 0.55
+        return round(min(score, 1.0), 4), matched_terms, round(term_coverage, 4)
+
+    @staticmethod
+    def _contains_definition(content: str, query_terms: set[str]) -> bool:
+        """Return whether a query term is declared as a common code symbol."""
+        lowered = content.lower()
+        for term in query_terms:
+            symbol = term.rsplit(".", maxsplit=1)[-1]
+            if len(symbol) < 5:
+                continue
+            pattern = (
+                rf"\b(?:async\s+def|def|class|function|interface|func)\s+"
+                rf"{re.escape(symbol)}\b"
+            )
+            if re.search(pattern, lowered):
+                return True
+        return False
 
     def _build_faiss_index(self):
         """Build FAISS index from chunks using sentence-transformers."""
@@ -288,19 +509,28 @@ class RAGService:
         query_embedding = np.array(query_embedding, dtype="float32")
         faiss.normalize_L2(query_embedding)
 
-        scores, indices = self._index.search(query_embedding, min(top_k, len(self._chunks)))
-        results = []
-        for score, idx in zip(scores[0], indices[0]):
+        candidate_count = min(max(top_k * 3, top_k), len(self._chunks))
+        scores, indices = self._index.search(query_embedding, candidate_count)
+        query_terms = set(self.tokenize(query))
+        results: list[SearchResult] = []
+        for score, idx in zip(scores[0], indices[0], strict=True):
             if idx < 0 or idx >= len(self._chunks):
                 continue
             chunk = self._chunks[idx]
-            # Convert inner product to pseudo-cosine (0-1), apply weighting, and clamp to 1.0 max
-            base_score = max(0.0, float(score))
-            final_score = min(1.0, max(0.0, (base_score * 0.7) + (chunk.importance_score * 0.3)))
-            
-            if final_score >= 0.4:
-                results.append(SearchResult(
-                    chunk=chunk, score=final_score,
-                    relevance="high" if final_score > 0.7 else "medium"
-                ))
-        return sorted(results, key=lambda r: -r.score)
+            semantic_score = max(0.0, min(1.0, float(score)))
+            lexical_score, matched_terms, term_coverage = self._lexical_evidence(
+                query_terms, int(idx)
+            )
+            final_score = round(0.7 * semantic_score + 0.3 * lexical_score, 4)
+
+            if final_score >= 0.25:
+                results.append(
+                    SearchResult(
+                        chunk=chunk,
+                        score=final_score,
+                        relevance=self._relevance_label(final_score),
+                        matched_terms=matched_terms,
+                        term_coverage=term_coverage,
+                    )
+                )
+        return self._rank_and_prune(results, top_k)
