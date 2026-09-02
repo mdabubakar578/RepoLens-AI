@@ -173,6 +173,7 @@ The recorded suite has 97 passing tests, 77% whole-project coverage, and 85% com
 
 ## Technical Notes
 
+See [EVALUATION.md](EVALUATION.md) for the benchmark method, held-out results, and scoring ablation.
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the current code navigation map and dependency rules.
 
 ---

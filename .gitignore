@@ -40,6 +40,7 @@ htmlcov/
 # Local configuration
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 .DS_Store
@@ -50,5 +51,7 @@ logs/
 my-log.txt
 .env
 
-# Local MCP setup script (contains API tokens once filled in)
-.claude/setup-mcp.sh
+# Generated benchmark output (regenerate with: python -m benchmarks.runner)
+benchmarks/evaluation-results.json
+benchmarks/evaluation-results.md
+benchmarks/evaluation-ablation.md
