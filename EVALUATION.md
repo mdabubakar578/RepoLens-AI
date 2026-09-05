@@ -69,36 +69,48 @@ overlapping token count.
 
 | Metric | RepoLens | Baseline |
 |---|---:|---:|
-| File Recall@5 | 0.513 | **0.600** |
-| Mean reciprocal rank | **0.389** | 0.310 |
+| File Recall@5 | 0.593 | 0.600 |
+| Mean reciprocal rank | **0.408** | 0.310 |
 
-**Read that honestly: as shipped, the naive baseline retrieves more correct
-files than RepoLens does.** RepoLens ranks better — when it finds the file, it
-puts it higher — but it finds the file less often.
-
-### Why, and what happens at equal budget
-
-The two systems are not given the same output budget. The baseline always emits
-five distinct files. RepoLens retrieves five *chunks*, and those chunks collapse
-to **2.69 unique files on average**, because several chunks routinely come from
-the same file. So the row above compares five guesses against roughly three.
-
-Correcting for that in both directions:
+Recall is level with the baseline; ranking is 32% better. At equal candidate
+budget — the baseline always emits five distinct files, RepoLens averages 3.55 —
+the margin is wider:
 
 | Comparison | RepoLens | Baseline |
 |---|---:|---:|
-| Recall, baseline cut to the same candidate count | **0.513** | 0.373 |
-| MRR, baseline cut to the same candidate count | **0.389** | 0.249 |
-| Recall@5, ranking read deep enough for five unique files | **0.607** | 0.600 |
-| MRR, ranking read deep enough for five unique files | **0.434** | 0.310 |
+| Recall, baseline cut to the same candidate count | **0.593** | 0.473 |
+| MRR, baseline cut to the same candidate count | **0.408** | 0.277 |
 
-At equal budget the ranking is clearly better on both metrics. At five unique
-files each, recall is effectively tied (0.607 vs 0.600) while MRR is 40% higher.
+### Two defects this benchmark found and fixed
 
-**The actionable finding:** `RAG_TOP_K = 5` is a chunk budget being used to
-answer a file-level question, and it costs roughly 9 points of recall
-(0.513 → 0.607). That is a real defect this benchmark surfaced, and it is
-recorded here rather than tuned away before reporting.
+The first measurement was worse: **Recall@5 0.513 against the baseline's
+0.600.** Two separate causes, both invisible to the hand-written corpus:
+
+1. **The chunk budget was being spent on one file.** `RAG_TOP_K` selected the
+   five highest-scoring *chunks*, and a file that matches a query usually
+   matches it in several places, so five chunks collapsed to **2.69 unique
+   files** — three guesses against the baseline's five. Selection is now
+   file-aware: one chunk per file first, with leftover slots filled from the
+   same files so a narrow match still returns full context. The chunk budget,
+   and therefore the context size, is unchanged.
+2. **Exact symbol matches discarded direct evidence.** When the graph found an
+   exact symbol, the supplemental search *replaced* the first search's results
+   instead of merging with them. In 6 of 150 queries this threw away a file the
+   first search had already ranked first.
+
+| Stage | Recall@5 | MRR | Unique files |
+|---|---:|---:|---:|
+| As first measured | 0.513 | 0.389 | 2.69 |
+| File-aware selection | 0.567 | 0.403 | 3.50 |
+| Merging symbol evidence | **0.593** | **0.408** | 3.55 |
+
+That is +8.0 points of recall, against a ceiling of 0.607 for the same ranking
+read deep enough to offer five unique files — so the budget defect is now
+essentially closed, and what remains is the score floor deliberately declining
+to offer weak evidence.
+
+Both fixes carry regression tests, and neither was tuned against the benchmark:
+the ranking function is untouched.
 
 ### The harder subset
 
@@ -107,8 +119,8 @@ so they cannot be answered by matching the identifier.
 
 | Metric | RepoLens | Baseline |
 |---|---:|---:|
-| File Recall@5 | 0.361 | **0.500** |
-| Mean reciprocal rank | **0.292** | 0.265 |
+| File Recall@5 | 0.417 | **0.500** |
+| Mean reciprocal rank | **0.303** | 0.265 |
 
 On genuinely semantic queries the advantage largely disappears: MRR is barely
 ahead and recall is behind. This is the honest limit of a lexical, IDF-weighted
@@ -121,17 +133,24 @@ Each term is disabled in turn and all 150 real queries are re-run.
 
 | Variant | Recall@5 | Δ | MRR | Δ |
 |---|---:|---:|---:|---:|
-| Full scoring | 0.5133 | — | 0.3891 | — |
-| without coverage | 0.0533 | **−0.4600** | 0.0400 | −0.3491 |
-| without code_bonus | 0.3933 | **−0.1200** | 0.3283 | −0.0608 |
-| without importance | 0.4467 | −0.0666 | 0.3522 | −0.0369 |
-| without frequency | 0.4867 | −0.0266 | 0.3766 | −0.0125 |
-| without definition_bonus | 0.4933 | −0.0200 | 0.3641 | −0.0250 |
-| without path | 0.5200 | **+0.0067** | 0.3913 | +0.0022 |
+| Full scoring | 0.5933 | — | 0.4080 | — |
+| without coverage | 0.0667 | **−0.5266** | 0.0456 | −0.3624 |
+| without code_bonus | 0.4400 | **−0.1533** | 0.3418 | −0.0662 |
+| without importance | 0.4933 | **−0.1000** | 0.3639 | −0.0441 |
+| without frequency | 0.5667 | −0.0266 | 0.3940 | −0.0140 |
+| without definition_bonus | 0.6000 | +0.0067 | 0.3920 | −0.0160 |
+| without path | 0.6000 | +0.0067 | 0.4111 | +0.0031 |
 
-Five of six terms are load-bearing. Path relevance is not: removing it makes
-retrieval very slightly *better*, so that weight is not currently earning its
-place and is a candidate for removal.
+Four of six terms are clearly load-bearing, led by term coverage. Two are not:
+
+- **Path relevance** improves both metrics when removed. It is not earning its
+  place and is a candidate for deletion.
+- **The definition bonus** raises recall slightly but costs MRR, so it is
+  trading rank quality for coverage rather than adding information.
+
+Neither weight was changed on the strength of this table — acting on it would
+mean tuning on the same 150 queries used to report the headline result. It is
+recorded as a finding, and testing it needs a second, unseen set of repositories.
 
 This table is the clearest argument for using real repositories. The same
 ablation on the hand-written corpus showed a zero delta for five of the six
@@ -165,7 +184,7 @@ Read its numbers as "nothing regressed", never as "retrieval is accurate".
   and zero confidence.
 - **Bounded trace rate** — share of investigations within `AGENT_MAX_STEPS`.
 - **Latency** — `perf_counter` around the deterministic investigator. Median
-  105 ms, p95 207 ms on the real corpus. Excludes network and model generation,
+  93 ms, p95 193 ms on the real corpus. Excludes network and model generation,
   so it is not end-to-end production latency.
 
 Confidence is an application-defined evidence score from 0–100 combining term
@@ -175,15 +194,16 @@ that the answer is true.
 
 ## Automated tests
 
-111 tests cover routes and input validation, database operations and stale
+116 tests cover routes and input validation, database operations and stale
 recovery, git-log parsing, deterministic analyzers, retrieval quality, graph
 resolution, the bounded investigator, Q&A fallback, exports, security headers,
-Markdown escaping, and the benchmark's own leakage controls.
+Markdown escaping, file-diverse retrieval selection, and the benchmark's own
+leakage controls.
 
 CI enforces dependency consistency, Ruff, byte-compilation, the full suite, 70%
 whole-project statement coverage, 80% combined coverage for the five core agent
-modules, and the offline benchmark gates. Last verified run: **111 passing, 76%
-whole-project, 88% core-agent**.
+modules, and the offline benchmark gates. Last verified run: **116 passing, 75%
+whole-project, 89% core-agent**.
 
 ## Known limits
 

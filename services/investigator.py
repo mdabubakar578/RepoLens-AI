@@ -76,16 +76,17 @@ class RepositoryInvestigator:
         ):
             supplemental_query = self._supplemental_query(question, intent, symbols, relationships)
             if supplemental_query != question:
-                supplemental_matches = self._search_and_record(
-                    supplemental_query, result, "Close the remaining evidence gap"
+                # Merge rather than replace. An exact symbol match used to
+                # discard the direct evidence entirely, which lost the correct
+                # file in 6 of 150 real-repository queries where the first
+                # search had already ranked it first. Deduplication below sorts
+                # by score, so a genuinely stronger symbol-targeted match still
+                # wins without the weaker branch throwing away better evidence.
+                retrieved.extend(
+                    self._search_and_record(
+                        supplemental_query, result, "Close the remaining evidence gap"
+                    )
                 )
-                has_exact_symbol = any(
-                    node.get("match_reason") == "exact_symbol" for node in symbols
-                )
-                if has_exact_symbol:
-                    retrieved = supplemental_matches
-                else:
-                    retrieved.extend(supplemental_matches)
 
         retrieved = self._deduplicate(retrieved)[:10]
         result.sources = [self._source(item) for item in retrieved]
@@ -125,7 +126,7 @@ class RepositoryInvestigator:
 
     def _search_and_record(self, query, result, reason):
         """Search the code index and record the strongest observable evidence."""
-        matches = self.rag.search(query, top_k=5) if self.rag_available else []
+        matches = self.rag.search(query) if self.rag_available else []
         if matches:
             best = matches[0]
             coverage = round(best.term_coverage * 100)

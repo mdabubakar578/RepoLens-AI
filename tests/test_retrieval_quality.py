@@ -226,3 +226,81 @@ def test_coverage_reports_share_of_repository_not_fetch_success():
     assert coverage["coverage_percent"] < 100
     assert coverage["fetch_success_percent"] == 100.0
     assert coverage["selection_capped"] is True
+
+
+def _result(path, score, start_line=1):
+    """Build a ranked search result without going through the indexer."""
+    from services.rag_service import CodeChunk, SearchResult
+
+    return SearchResult(
+        chunk=CodeChunk(
+            file_path=path,
+            content="body",
+            start_line=start_line,
+            end_line=start_line + 5,
+        ),
+        score=score,
+    )
+
+
+def test_chunk_budget_is_spent_on_distinct_files_first():
+    """Five chunks of one file answered a file-level question with one file."""
+    ranked = [
+        _result("a.py", 0.90, 1),
+        _result("a.py", 0.89, 20),
+        _result("a.py", 0.88, 40),
+        _result("b.py", 0.87),
+        _result("c.py", 0.86),
+    ]
+
+    selected = RAGService._select_across_files(ranked, top_k=3)
+
+    assert [item.chunk.file_path for item in selected] == ["a.py", "b.py", "c.py"]
+
+
+def test_leftover_budget_falls_back_to_more_chunks_of_the_same_file():
+    """A narrow match must still return full context, not a thinner answer."""
+    ranked = [_result("a.py", 0.90, 1), _result("a.py", 0.89, 20), _result("a.py", 0.88, 40)]
+
+    selected = RAGService._select_across_files(ranked, top_k=3)
+
+    assert len(selected) == 3
+    assert {item.chunk.file_path for item in selected} == {"a.py"}
+
+
+def test_selection_never_exceeds_the_requested_budget():
+    ranked = [_result(f"f{index}.py", 0.9 - index / 100) for index in range(10)]
+
+    assert len(RAGService._select_across_files(ranked, top_k=4)) == 4
+
+
+def test_search_returns_one_chunk_per_file_before_repeating_a_file(tmp_path, monkeypatch):
+    body = "def handle_payment_capture(token):\n    return capture(token)\n"
+    rag, _ = _index(
+        tmp_path,
+        monkeypatch,
+        {
+            "one.py": body + "\n\n" + body.replace("handle", "retry"),
+            "two.py": body,
+            "three.py": body,
+        },
+    )
+
+    results = rag.search("handle payment capture", top_k=3)
+
+    assert len({item.chunk.file_path for item in results}) == 3
+
+
+def test_exact_symbol_match_does_not_discard_direct_evidence(tmp_path, monkeypatch):
+    """The supplemental search used to replace, not merge, losing the answer."""
+    files = {
+        "utils.py": "def get_unicode_from_response(response):\n    return response.text\n",
+        "models.py": "class Response:\n    def json(self):\n        return load(self.text)\n",
+    }
+    _index(tmp_path, monkeypatch, files, analysis_id="merge")
+
+    investigation = RepositoryInvestigator("merge").investigate(
+        "Where is get_unicode_from_response defined?"
+    )
+
+    assert "utils.py" in {source["file_path"] for source in investigation.sources}

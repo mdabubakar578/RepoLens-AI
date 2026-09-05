@@ -170,9 +170,9 @@ python -m benchmarks.runner --check          # offline regression gate
 python -m benchmarks.real_world --ablation   # 150 queries over six real repositories
 ```
 
-The recorded suite has 111 passing tests, 76% whole-project coverage, and 88% combined coverage for the five core agent modules.
+The recorded suite has 116 passing tests, 75% whole-project coverage, and 89% combined coverage for the five core agent modules.
 
-Retrieval is measured on six real open-source repositories (click, requests, flask, attrs, httpx, black), using 150 queries taken from those projects' own docstrings, with every docstring stripped from the indexed text first. Against a naive token-overlap baseline, RepoLens ranks better (MRR 0.389 vs 0.310) but retrieves fewer correct files as shipped (Recall@5 0.513 vs 0.600), because it spends its budget on five chunks rather than five files. Given the same candidate budget it leads on both (0.513 vs 0.373 recall). On queries sharing no vocabulary with the code, it trails on recall. Full numbers, the ablation, and the limits are in EVALUATION.md.
+Retrieval is measured on six real open-source repositories (click, requests, flask, attrs, httpx, black), using 150 queries taken from those projects' own docstrings, with every docstring stripped from the indexed text first. Against a naive token-overlap baseline, RepoLens matches it on Recall@5 (0.593 vs 0.600) and ranks substantially better (MRR 0.408 vs 0.310); given the same candidate budget it leads on both (0.593 vs 0.473 recall). That benchmark also found two real defects, since fixed: the retriever spent its five-slot budget on chunks that collapsed to 2.69 unique files, and an exact symbol match discarded the first search's evidence instead of merging it — together worth +8 points of recall. On queries sharing no vocabulary with the code, it still trails on recall. Full numbers, the ablation, and the limits are in EVALUATION.md.
 
 ## Technical Notes
 
