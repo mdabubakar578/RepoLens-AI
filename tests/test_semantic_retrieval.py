@@ -8,10 +8,11 @@ of which depend on the quality of a particular model.
 
 from typing import ClassVar
 
-import numpy as np
 import pytest
 
-from services.rag_service import RRF_K, CodeChunk, RAGService
+np = pytest.importorskip("numpy", reason="numpy backs the optional embedding path")
+
+from services.rag_service import RRF_K, CodeChunk, RAGService  # noqa: E402
 
 
 class StubEncoder:
