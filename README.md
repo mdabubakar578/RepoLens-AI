@@ -166,14 +166,17 @@ pip install -r requirements-dev.txt
 python -m ruff check .
 python -m coverage run --source=app,config,database,pages,services,benchmarks -m pytest -q
 python -m coverage report --fail-under=70
-python -m benchmarks.runner --check
+python -m benchmarks.runner --check          # offline regression gate
+python -m benchmarks.real_world --ablation   # 150 queries over six real repositories
 ```
 
-The recorded suite has 97 passing tests, 77% whole-project coverage, and 85% combined coverage for the five core agent modules. The controlled offline benchmark records 100% File Recall@5 versus 77.8% for a naive baseline on the questions used while tuning. On a held-out question set the naive baseline also reaches 100% Recall@5, so that advantage does not reproduce out of sample; the measured gain there is in ranking quality (MRR 0.80 versus 0.65). These figures are regression evidence for the included corpus, not universal accuracy.
+The recorded suite has 111 passing tests, 76% whole-project coverage, and 88% combined coverage for the five core agent modules.
+
+Retrieval is measured on six real open-source repositories (click, requests, flask, attrs, httpx, black), using 150 queries taken from those projects' own docstrings, with every docstring stripped from the indexed text first. Against a naive token-overlap baseline, RepoLens ranks better (MRR 0.389 vs 0.310) but retrieves fewer correct files as shipped (Recall@5 0.513 vs 0.600), because it spends its budget on five chunks rather than five files. Given the same candidate budget it leads on both (0.513 vs 0.373 recall). On queries sharing no vocabulary with the code, it trails on recall. Full numbers, the ablation, and the limits are in EVALUATION.md.
 
 ## Technical Notes
 
-See [EVALUATION.md](EVALUATION.md) for the benchmark method, held-out results, and scoring ablation.
+See [EVALUATION.md](EVALUATION.md) for the benchmark method, the real-repository results, and the scoring ablation.
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the current code navigation map and dependency rules.
 
 ---
