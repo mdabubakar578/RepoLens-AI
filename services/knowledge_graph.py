@@ -6,6 +6,7 @@ import ast
 import json
 import os
 import re
+import warnings
 from collections import defaultdict, deque
 
 JS_EXTENSIONS = (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
@@ -160,10 +161,15 @@ class KnowledgeGraph:
         return len(text)
 
     def _parse_python(self, path, content):
-        try:
-            tree = ast.parse(content)
-        except (SyntaxError, ValueError):
-            return
+        # An analysed repository is someone else's code. Its invalid escapes
+        # and deprecated constructs are not this service's warnings to raise
+        # into the application log.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            try:
+                tree = ast.parse(content)
+            except (SyntaxError, ValueError):
+                return
         parents = {
             child: parent
             for parent in ast.walk(tree)

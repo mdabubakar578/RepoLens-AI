@@ -167,12 +167,13 @@ python -m ruff check .
 python -m coverage run --source=app,config,database,pages,services,benchmarks -m pytest -q
 python -m coverage report --fail-under=70
 python -m benchmarks.runner --check          # offline regression gate
-python -m benchmarks.real_world --ablation   # 150 queries over six real repositories
+python -m benchmarks.real_world --suite dev --ablation   # 150 queries, six real repositories
+python -m benchmarks.real_world --suite heldout          # 138 queries, six different ones
 ```
 
-The recorded suite has 116 passing tests, 75% whole-project coverage, and 89% combined coverage for the five core agent modules.
+The recorded suite has 120 passing tests, 76% whole-project coverage, and 89% combined coverage for the five core agent modules.
 
-Retrieval is measured on six real open-source repositories (click, requests, flask, attrs, httpx, black), using 150 queries taken from those projects' own docstrings, with every docstring stripped from the indexed text first. Against a naive token-overlap baseline, RepoLens matches it on Recall@5 (0.593 vs 0.600) and ranks substantially better (MRR 0.408 vs 0.310); given the same candidate budget it leads on both (0.593 vs 0.473 recall). That benchmark also found two real defects, since fixed: the retriever spent its five-slot budget on chunks that collapsed to 2.69 unique files, and an exact symbol match discarded the first search's evidence instead of merging it — together worth +8 points of recall. On queries sharing no vocabulary with the code, it still trails on recall. Full numbers, the ablation, and the limits are in EVALUATION.md.
+Retrieval is measured on twelve real open-source repositories, split into a `dev` suite used for diagnosis and a `heldout` suite never used to decide a change. Queries are the projects' own docstrings, with every docstring stripped from the indexed text first. On the held-out suite RepoLens reaches Recall@5 0.674 and MRR 0.517, against a naive token-overlap baseline's 0.493 and 0.283; on the smaller dev repositories the baseline still ties on recall (0.593 vs 0.600) because 51-file corpora leave it little to get wrong. The stated target is Recall@5 0.80, so this is short of the bar and the gap is attributed in EVALUATION.md.
 
 ## Technical Notes
 

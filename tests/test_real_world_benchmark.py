@@ -148,3 +148,40 @@ def test_read_repository_strips_the_archive_prefix_and_skips_binaries():
     files = read_repository(buffer.getvalue())
 
     assert set(files) == {"src/click/core.py", "README.md"}
+
+
+def test_suites_share_no_repository():
+    """A held-out suite that overlaps the dev suite would not be held out."""
+    from benchmarks.real_world import SUITES
+
+    dev = {(spec["owner"], spec["repo"]) for spec in SUITES["dev"]}
+    heldout = {(spec["owner"], spec["repo"]) for spec in SUITES["heldout"]}
+
+    assert dev and heldout
+    assert dev.isdisjoint(heldout)
+
+
+def test_every_repository_is_pinned_to_an_immutable_ref():
+    """A moving branch would make the corpus, and so the results, undated."""
+    from benchmarks.real_world import SUITES
+
+    for suite in SUITES.values():
+        for spec in suite:
+            assert spec["ref"] not in {"main", "master", "HEAD"}
+
+
+def test_parsing_third_party_source_stays_quiet_about_its_lint():
+    """Invalid escapes are a property of the corpus, not a benchmark failure."""
+    import warnings
+
+    from benchmarks.real_world import _parse
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _parse('x = "\d"') is not None
+
+
+def test_parse_returns_none_for_unparseable_source():
+    from benchmarks.real_world import _parse
+
+    assert _parse("def broken(:") is None

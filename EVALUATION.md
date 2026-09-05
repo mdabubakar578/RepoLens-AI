@@ -8,8 +8,9 @@ An additional hand-written corpus exists, but it is a CI regression gate, not
 evidence — the distinction is spelled out below.
 
 ```bash
-python -m benchmarks.real_world --ablation   # real repositories (downloads once, then cached)
-python -m benchmarks.runner --check          # offline regression gate
+python -m benchmarks.real_world --suite dev --ablation   # tuning suite
+python -m benchmarks.real_world --suite heldout          # never used to decide a change
+python -m benchmarks.runner --check                      # offline regression gate
 ```
 
 ## What is being tested
@@ -27,20 +28,69 @@ are out of scope.
 | RQ4 | Does the investigator reject a question about a feature that does not exist? | Offline gate |
 | RQ5 | Does every investigation stay within the configured action limit? | Both |
 
-## Real-repository corpus
+## Targets
 
-| Repository | Tag | Source files | Indexed |
-|---|---|---:|---:|
-| pallets/click | 8.1.7 | 82 | 60 |
-| psf/requests | v2.31.0 | 51 | 51 |
-| pallets/flask | 3.0.0 | 101 | 60 |
-| python-attrs/attrs | 23.1.0 | 81 | 60 |
-| encode/httpx | 0.25.2 | 89 | 60 |
-| psf/black | 23.12.1 | 323 | 60 |
+Scores are only meaningful against a stated bar, so the bar is stated before
+the results. On this task — retrieving the right file from roughly 60 indexed
+candidates — a random five-file guess scores 0.083 and the naive lexical
+baseline scores 0.49–0.60 depending on repository size.
 
-727 source files, 5,491 indexed chunks, 20,937 graph edges. Every repository is
-pinned at an immutable tag and the archive SHA-256 is recorded in the result
-artifact, so the corpus is reproducible by anyone.
+| Band | Recall@5 | MRR | What it means in use |
+|---|---:|---:|---|
+| Baseline parity | ~0.60 | ~0.31 | No better than naive token overlap |
+| Minimum viable | 0.70 | 0.50 | Right file in the top five 7 times in 10, usually at rank 1–2 |
+| **Target** | **0.80** | **0.60** | Wrong only 1 question in 5; answer usually leads with the right file |
+| Strong | 0.90 | 0.70 | Comparable to published dense retrievers on their own benchmarks |
+
+Two conditions matter as much as the score:
+
+1. **Consistency across suites.** A system that scores 0.80 on one set and 0.60
+   on another has been fitted to the first. Suites should agree within about
+   ±0.05.
+2. **The identifier-free subset must move too.** Gains that appear only where
+   the query already contains the symbol name are lexical luck, not
+   understanding.
+
+**Current status: not at target.** Held-out Recall@5 is 0.674 against a 0.80
+target, and the two suites disagree by 0.081 — further from convergence than
+the ±0.05 bar. The gap is diagnosed below.
+
+## Two suites, and why
+
+Measuring and fixing on the same repositories produces a number that describes
+those repositories. So the corpus is split, and the split is a working rule
+rather than a label:
+
+- **`dev`** — every defect is diagnosed and fixed here.
+- **`heldout`** — run to report capability, never used to decide a change. It
+  was added *after* the two fixes below had already landed.
+
+A test asserts the suites are disjoint and that every repository is pinned to
+an immutable tag, so neither discipline can erode quietly. When a future change
+is driven by `heldout`, that suite is spent and a third must be added.
+
+| Suite | Repository | Tag | Source files | Indexed |
+|---|---|---|---:|---:|
+| dev | pallets/click | 8.1.7 | 82 | 60 |
+| dev | psf/requests | v2.31.0 | 51 | 51 |
+| dev | pallets/flask | 3.0.0 | 101 | 60 |
+| dev | python-attrs/attrs | 23.1.0 | 81 | 60 |
+| dev | encode/httpx | 0.25.2 | 89 | 60 |
+| dev | psf/black | 23.12.1 | 323 | 60 |
+| heldout | pytest-dev/pytest | 7.4.4 | 269 | 60 |
+| heldout | scrapy/scrapy | 2.11.0 | 359 | 60 |
+| heldout | celery/celery | v5.3.6 | 367 | 60 |
+| heldout | tornadoweb/tornado | v6.4.0 | 119 | 60 |
+| heldout | Textualize/rich | v13.7.0 | 242 | 60 |
+| heldout | paramiko/paramiko | 3.4.0 | 98 | 60 |
+
+The held-out set is deliberately unlike the dev set: a test runner, a crawler,
+a task queue, an async server, a terminal renderer, and an SSH implementation,
+against six mostly small Python libraries. It is also twice the size — 1,454
+source files against 727 — which turns out to matter.
+
+Every repository is pinned to an immutable tag and the archive SHA-256 is
+recorded in the result artifact, so the corpus is reproducible by anyone.
 
 ### Where the labels come from
 
@@ -62,24 +112,38 @@ This is the part that matters, and it follows the CodeSearchNet convention:
 The filters and the docstring stripping are covered by their own tests, because
 a silent regression in either would inflate these numbers rather than fail.
 
-## Results on real repositories
+## Results
 
 The baseline lowercases the question, splits on whitespace, and ranks files by
 overlapping token count.
 
-| Metric | RepoLens | Baseline |
-|---|---:|---:|
-| File Recall@5 | 0.593 | 0.600 |
-| Mean reciprocal rank | **0.408** | 0.310 |
+| Suite | Queries | Recall@5 | Baseline | MRR | Baseline |
+|---|---:|---:|---:|---:|---:|
+| dev | 150 | 0.593 | 0.600 | **0.408** | 0.310 |
+| **heldout** | 138 | **0.674** | 0.493 | **0.517** | 0.283 |
 
-Recall is level with the baseline; ranking is 32% better. At equal candidate
-budget — the baseline always emits five distinct files, RepoLens averages 3.55 —
-the margin is wider:
+**The held-out suite — the one never used to decide a change — is the better
+result.** Recall@5 leads the baseline by 18 points and MRR by 83%.
 
-| Comparison | RepoLens | Baseline |
+That is the opposite of overfitting, and the reason is repository size. The dev
+libraries are small: requests indexes 51 files, click 82. With that few
+candidates a naive baseline already does well, the same saturation that made
+the hand-written corpus useless, just milder. The held-out repositories average
+242 files, so there are real distractors and ranking has something to do.
+
+**Read the dev row as a hard floor, not as the headline.** On repositories of
+the size people actually analyse, the system is well clear of the baseline.
+
+### Equal output budget
+
+The baseline always emits five distinct files; RepoLens averages 3.4–3.6, since
+the score floor declines to offer weak evidence. Cut to the same candidate
+count, the margin widens:
+
+| Suite | Recall, matched budget | Baseline |
 |---|---:|---:|
-| Recall, baseline cut to the same candidate count | **0.593** | 0.473 |
-| MRR, baseline cut to the same candidate count | **0.408** | 0.277 |
+| dev | **0.593** | 0.473 |
+| heldout | **0.674** | 0.362 |
 
 ### Two defects this benchmark found and fixed
 
@@ -114,22 +178,50 @@ the ranking function is untouched.
 
 ### The harder subset
 
-36 of the 150 queries share no word with the name of the symbol being retrieved,
-so they cannot be answered by matching the identifier.
+Queries sharing no word with the name of the symbol being retrieved, so they
+cannot be answered by matching the identifier. This is the closest thing here
+to a test of understanding rather than string overlap.
 
-| Metric | RepoLens | Baseline |
-|---|---:|---:|
-| File Recall@5 | 0.417 | **0.500** |
-| Mean reciprocal rank | **0.303** | 0.265 |
+| Suite | Queries | Recall@5 | Baseline | MRR | Baseline |
+|---|---:|---:|---:|---:|---:|
+| dev | 36 | 0.417 | **0.500** | **0.303** | 0.265 |
+| heldout | 38 | **0.526** | 0.368 | **0.425** | 0.159 |
 
-On genuinely semantic queries the advantage largely disappears: MRR is barely
-ahead and recall is behind. This is the honest limit of a lexical, IDF-weighted
-retriever with no embedding model in the default configuration. Closing this gap
-needs semantic embeddings, not more weight tuning.
+On dev these queries are the one place the baseline still wins on recall. On
+held-out — larger repositories, more distractors — RepoLens leads on both, and
+MRR is more than twice the baseline.
+
+So the earlier conclusion that semantic queries were a flat weakness was drawn
+from the smaller suite alone. The weakness is real but narrower than it looked:
+it shows up when there are few candidate files, not on realistic repositories.
+Both subsets remain below the 0.80 target.
+
+## Route to target
+
+Held-out Recall@5 is 0.674; the target is 0.80. Where the remaining 0.126 sits,
+measured rather than guessed:
+
+| Cause | Evidence | Worth |
+|---|---|---|
+| Lexical retrieval has no synonym knowledge | Identifier-free subset scores 0.526 against 0.674 overall | Largest share |
+| The score floor withholds candidates | 3.4 unique files offered against a budget of 5; deep read reaches only 0.681 | ~0.01 as configured |
+| 60-file index cap | Five of six held-out repositories are capped; queries are drawn only from indexed files, so this cost is excluded here and paid in production | Unmeasured |
+
+The ordering says the next move is semantic, not another weight. A local
+embedding model already exists behind `RAG_USE_EMBEDDINGS` but is off by
+default and unmeasured; enabling and benchmarking it is the one change with a
+plausible path to 0.80, because the identifier-free gap is exactly what
+embeddings address.
+
+Two things that would *not* be legitimate: tuning weights against these 288
+queries, and reporting the dev suite's easier subsets selectively. Any change
+driven by `heldout` spends it, and a third suite must follow.
 
 ## Scoring ablation
 
-Each term is disabled in turn and all 150 real queries are re-run.
+Each term is disabled in turn and the 150 **dev** queries are re-run. The
+held-out suite is not used here: an ablation exists to inform changes, which is
+exactly what that suite must not do.
 
 | Variant | Recall@5 | Δ | MRR | Δ |
 |---|---:|---:|---:|---:|
@@ -171,7 +263,7 @@ It is retained for what it genuinely provides, which the real benchmark cannot:
   return no evidence, mark evidence insufficient, and assign zero confidence.
   This passes at 100%.
 - A **bounded-trace check** — every investigation stays within
-  `AGENT_MAX_STEPS`. This also holds at 100% across all 150 real queries.
+  `AGENT_MAX_STEPS`. This also holds at 100% across all 288 real queries.
 
 Read its numbers as "nothing regressed", never as "retrieval is accurate".
 
@@ -184,8 +276,8 @@ Read its numbers as "nothing regressed", never as "retrieval is accurate".
   and zero confidence.
 - **Bounded trace rate** — share of investigations within `AGENT_MAX_STEPS`.
 - **Latency** — `perf_counter` around the deterministic investigator. Median
-  93 ms, p95 193 ms on the real corpus. Excludes network and model generation,
-  so it is not end-to-end production latency.
+  93–106 ms, p95 193–255 ms across the two suites. Excludes network and model
+  generation, so it is not end-to-end production latency.
 
 Confidence is an application-defined evidence score from 0–100 combining term
 coverage, top-result strength, code-evidence ratio, exact-symbol support, and
@@ -194,31 +286,37 @@ that the answer is true.
 
 ## Automated tests
 
-116 tests cover routes and input validation, database operations and stale
+120 tests cover routes and input validation, database operations and stale
 recovery, git-log parsing, deterministic analyzers, retrieval quality, graph
 resolution, the bounded investigator, Q&A fallback, exports, security headers,
 Markdown escaping, file-diverse retrieval selection, and the benchmark's own
-leakage controls.
+leakage and suite-separation controls.
 
 CI enforces dependency consistency, Ruff, byte-compilation, the full suite, 70%
 whole-project statement coverage, 80% combined coverage for the five core agent
-modules, and the offline benchmark gates. Last verified run: **116 passing, 75%
+modules, and the offline benchmark gates. Last verified run: **120 passing, 76%
 whole-project, 89% core-agent**.
 
 ## Known limits
 
 These bound every number above.
 
-- **The retriever is lexical by default.** On queries sharing no vocabulary with
-  the code, it does not beat naive token overlap on recall.
-- **At most 60 files are indexed per repository.** Five of the six benchmark
-  repositories hit that cap, and queries are drawn only from indexed files, so
-  these figures measure ranking quality and exclude the cost of the cap. The
-  Q&A page reports the real coverage percentage to the user.
+- **The retriever is lexical by default.** The identifier-free subset scores
+  0.526 against 0.674 overall, and on small repositories it loses to naive token
+  overlap outright.
+- **At most 60 files are indexed per repository.** Eleven of the twelve
+  benchmark repositories hit that cap, and queries are drawn only from indexed
+  files, so these figures measure ranking quality and exclude the cost of the
+  cap entirely. On celery that means 60 files of 367. The Q&A page reports the
+  real coverage percentage to the user.
 - **Structure resolves for Python and JavaScript/TypeScript only.** Other
   languages are searchable as text but contribute no graph edges.
-- **All six benchmark repositories are Python libraries.** Results may not carry
-  to applications, monorepos, or other languages.
+- **All twelve benchmark repositories are Python.** The held-out suite varies
+  domain and size but not language, so the JavaScript/TypeScript path carries no
+  measured retrieval evidence at all. Monorepos are untested.
+- **Results depend strongly on repository size.** Recall@5 spans 0.593 to 0.674
+  between suites purely on candidate count, so any single figure quoted without
+  its corpus is misleading.
 - **Ground truth is definition location.** A query whose answer genuinely lives
   in several files is scored as satisfied by any one of them.
 - **Churn analysis requires real changed-file data.** Without it, no hotspots are

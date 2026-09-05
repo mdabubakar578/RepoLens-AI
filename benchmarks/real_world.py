@@ -37,6 +37,7 @@ import re
 import statistics
 import tempfile
 import time
+import warnings
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,17 +52,35 @@ from services.repository_indexer import select_index_files
 
 CACHE_DIR = Path(__file__).parent / ".cache"
 
-#: Public repositories pinned at immutable tags. Chosen for domain variety and
-#: for having documented public APIs, which is what makes docstring queries
-#: available at all. None of these are authored or controlled by this project.
-REPOSITORIES: tuple[dict, ...] = (
-    {"owner": "pallets", "repo": "click", "ref": "8.1.7", "language": "Python"},
-    {"owner": "psf", "repo": "requests", "ref": "v2.31.0", "language": "Python"},
-    {"owner": "pallets", "repo": "flask", "ref": "3.0.0", "language": "Python"},
-    {"owner": "python-attrs", "repo": "attrs", "ref": "23.1.0", "language": "Python"},
-    {"owner": "encode", "repo": "httpx", "ref": "0.25.2", "language": "Python"},
-    {"owner": "psf", "repo": "black", "ref": "23.12.1", "language": "Python"},
-)
+#: Repositories are grouped into suites, and the split is a working discipline
+#: rather than a label. Defects are diagnosed and fixed against ``dev`` only.
+#: ``heldout`` is run to report capability and is never used to decide a change,
+#: so a gap between the two measures overfitting directly. Add a further suite
+#: rather than reusing one that has already driven a fix.
+SUITES: dict[str, tuple[dict, ...]] = {
+    # Six Python libraries: HTTP, CLI, web, class construction, formatting.
+    "dev": (
+        {"owner": "pallets", "repo": "click", "ref": "8.1.7"},
+        {"owner": "psf", "repo": "requests", "ref": "v2.31.0"},
+        {"owner": "pallets", "repo": "flask", "ref": "3.0.0"},
+        {"owner": "python-attrs", "repo": "attrs", "ref": "23.1.0"},
+        {"owner": "encode", "repo": "httpx", "ref": "0.25.2"},
+        {"owner": "psf", "repo": "black", "ref": "23.12.1"},
+    ),
+    # Deliberately unlike the dev suite: a test runner, a crawler, a task
+    # queue, an async server, a terminal renderer, and an SSH implementation.
+    # Larger, older, and more varied in style than the libraries above.
+    "heldout": (
+        {"owner": "pytest-dev", "repo": "pytest", "ref": "7.4.4"},
+        {"owner": "scrapy", "repo": "scrapy", "ref": "2.11.0"},
+        {"owner": "celery", "repo": "celery", "ref": "v5.3.6"},
+        {"owner": "tornadoweb", "repo": "tornado", "ref": "v6.4.0"},
+        {"owner": "Textualize", "repo": "rich", "ref": "v13.7.0"},
+        {"owner": "paramiko", "repo": "paramiko", "ref": "3.4.0"},
+    ),
+}
+
+REPOSITORIES: tuple[dict, ...] = SUITES["dev"]
 
 #: Query text must be prose a developer would plausibly type.
 MIN_QUERY_CHARS = 40
@@ -131,15 +150,29 @@ def read_repository(payload: bytes) -> dict[str, str]:
     return files
 
 
+def _parse(source: str) -> ast.Module | None:
+    """Parse third-party source, staying quiet about its own lint problems.
+
+    Real repositories contain invalid string escapes and other constructs that
+    make CPython warn. Those are properties of the corpus, not of this code,
+    and a benchmark run should not bury its results under them.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        try:
+            return ast.parse(source)
+        except (SyntaxError, ValueError):
+            return None
+
+
 def strip_docstrings(source: str) -> str:
     """Blank out every docstring, preserving line count so offsets stay valid.
 
     The queries are the docstrings. Leaving them in the indexed text would make
     retrieval a verbatim string match and the benchmark meaningless.
     """
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
+    tree = _parse(source)
+    if tree is None:
         return source
 
     lines = source.splitlines()
@@ -205,9 +238,8 @@ def extract_queries(
     for path, source in indexed_files.items():
         if not path.endswith(".py"):
             continue
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
+        tree = _parse(source)
+        if tree is None:
             continue
         for node in ast.walk(tree):
             if not isinstance(
@@ -413,12 +445,15 @@ def _score(rows: list[dict]) -> dict:
     return overall
 
 
-def run(refresh: bool = False) -> dict:
-    """Evaluate every pinned repository and aggregate the results."""
-    repositories = [evaluate_repository(spec, refresh=refresh) for spec in REPOSITORIES]
+def run(refresh: bool = False, suite: str = "dev") -> dict:
+    """Evaluate every pinned repository in one suite and aggregate the results."""
+    repositories = [
+        evaluate_repository(spec, refresh=refresh) for spec in SUITES[suite]
+    ]
     rows = [row for result in repositories for row in result["cases"]]
     return {
         "benchmark_version": "1.0",
+        "suite": suite,
         "environment": {
             "network_used": True,
             "llm_used": False,
@@ -443,7 +478,7 @@ def run_ablation(refresh: bool = False) -> list[dict]:
     repositories supply the competing candidate files that make the comparison
     informative.
     """
-    full = run(refresh=refresh)["aggregate"]
+    full = run(refresh=refresh, suite="dev")["aggregate"]
     rows = [
         {
             "variant": "full scoring",
@@ -458,7 +493,7 @@ def run_ablation(refresh: bool = False) -> list[dict]:
         for name in original:
             SCORING_WEIGHTS.update(original)
             SCORING_WEIGHTS[name] = 0.0
-            metrics = run()["aggregate"]
+            metrics = run(suite="dev")["aggregate"]
             rows.append(
                 {
                     "variant": f"without {name}",
@@ -501,7 +536,7 @@ def _markdown_report(results: dict) -> str:
     hard = aggregate["hard_subset"]
     total_files = sum(item["corpus"]["repository_files"] for item in results["repositories"])
     lines = [
-        "# Real-repository retrieval results",
+        f"# Real-repository retrieval results - {results['suite']} suite",
         "",
         "Six public repositories, pinned at immutable tags. Queries are the",
         "developer-written docstrings found in those repositories; the relevant",
@@ -578,7 +613,7 @@ def _markdown_report(results: dict) -> str:
             "",
             "Reproduce with:",
             "",
-            "    python -m benchmarks.real_world",
+            f"    python -m benchmarks.real_world --suite {results['suite']}",
             "",
         ]
     )
@@ -588,9 +623,15 @@ def _markdown_report(results: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--suite",
+        default="dev",
+        choices=sorted(SUITES),
+        help="Which repository suite to evaluate (default: dev)",
+    )
+    parser.add_argument(
         "--output",
-        default="benchmarks/real-world-results.json",
-        help="JSON result path",
+        default=None,
+        help="JSON result path (defaults to a per-suite filename)",
     )
     parser.add_argument(
         "--refresh", action="store_true", help="Re-download the pinned archives"
@@ -602,8 +643,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    results = run(refresh=args.refresh)
-    output_path = Path(args.output)
+    results = run(refresh=args.refresh, suite=args.suite)
+    output_path = Path(
+        args.output or f"benchmarks/real-world-{args.suite}-results.json"
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
     output_path.with_suffix(".md").write_text(

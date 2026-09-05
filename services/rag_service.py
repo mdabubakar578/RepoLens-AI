@@ -14,6 +14,7 @@ import logging
 import math
 import os
 import re
+import warnings
 from collections import Counter
 from dataclasses import dataclass
 
@@ -479,10 +480,14 @@ class RAGService:
         chunks: list[CodeChunk] = []
         importance = self._calculate_importance(path)
         covered = [False] * len(lines)
-        try:
-            tree = ast.parse(content)
-        except (SyntaxError, ValueError):
-            return self._chunk_sliding_window(path, lines)
+        # Analysed repositories are third-party code; their lint warnings are
+        # not this service's to raise.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            try:
+                tree = ast.parse(content)
+            except (SyntaxError, ValueError):
+                return self._chunk_sliding_window(path, lines)
 
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
