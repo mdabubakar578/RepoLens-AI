@@ -55,8 +55,8 @@ my-log.txt
 benchmarks/evaluation-results.json
 benchmarks/evaluation-results.md
 benchmarks/evaluation-ablation.md
-benchmarks/real-world-*-results.json
-benchmarks/real-world-*-results.md
+benchmarks/real-world-*results.json
+benchmarks/real-world-*results.md
 benchmarks/real-world-ablation.md
 
 # Pinned upstream archives for the real-repository benchmark

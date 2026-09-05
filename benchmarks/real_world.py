@@ -286,7 +286,9 @@ def _is_usable_query(question: str, path: str) -> bool:
     return not (lowered & _path_tokens(path))
 
 
-def evaluate_repository(spec: dict, refresh: bool = False) -> dict:
+def evaluate_repository(
+    spec: dict, refresh: bool = False, embeddings: bool = False
+) -> dict:
     """Index one real repository and score retrieval over its docstring queries."""
     payload = fetch_archive(spec, refresh=refresh)
     repository = f"{spec['owner']}/{spec['repo']}"
@@ -315,7 +317,9 @@ def evaluate_repository(spec: dict, refresh: bool = False) -> dict:
             os.chdir(temp_dir)
             slug = spec["repo"]
             rag = RAGService()
-            rag._use_local = False
+            # Explicit either way, so a benchmark run never depends on which
+            # optional packages happen to be installed on the machine.
+            rag._use_local = embeddings
             chunk_count = rag.index_repository(slug, searchable)
 
             graph = KnowledgeGraph()
@@ -445,10 +449,11 @@ def _score(rows: list[dict]) -> dict:
     return overall
 
 
-def run(refresh: bool = False, suite: str = "dev") -> dict:
+def run(refresh: bool = False, suite: str = "dev", embeddings: bool = False) -> dict:
     """Evaluate every pinned repository in one suite and aggregate the results."""
     repositories = [
-        evaluate_repository(spec, refresh=refresh) for spec in SUITES[suite]
+        evaluate_repository(spec, refresh=refresh, embeddings=embeddings)
+        for spec in SUITES[suite]
     ]
     rows = [row for result in repositories for row in result["cases"]]
     return {
@@ -457,7 +462,7 @@ def run(refresh: bool = False, suite: str = "dev") -> dict:
         "environment": {
             "network_used": True,
             "llm_used": False,
-            "embeddings_enabled": False,
+            "embeddings_enabled": embeddings,
             "index_file_cap": config.MAX_INDEX_FILES,
             "agent_step_limit": config.AGENT_MAX_STEPS,
         },
@@ -536,7 +541,8 @@ def _markdown_report(results: dict) -> str:
     hard = aggregate["hard_subset"]
     total_files = sum(item["corpus"]["repository_files"] for item in results["repositories"])
     lines = [
-        f"# Real-repository retrieval results - {results['suite']} suite",
+        f"# Real-repository retrieval results - {results['suite']} suite"
+        + (" (embeddings)" if results["environment"]["embeddings_enabled"] else ""),
         "",
         "Six public repositories, pinned at immutable tags. Queries are the",
         "developer-written docstrings found in those repositories; the relevant",
@@ -613,7 +619,8 @@ def _markdown_report(results: dict) -> str:
             "",
             "Reproduce with:",
             "",
-            f"    python -m benchmarks.real_world --suite {results['suite']}",
+            f"    python -m benchmarks.real_world --suite {results['suite']}"
+            + (" --embeddings" if results["environment"]["embeddings_enabled"] else ""),
             "",
         ]
     )
@@ -637,15 +644,21 @@ def main() -> int:
         "--refresh", action="store_true", help="Re-download the pinned archives"
     )
     parser.add_argument(
+        "--embeddings",
+        action="store_true",
+        help="Also run the local embedding ranker and fuse it with lexical search",
+    )
+    parser.add_argument(
         "--ablation",
         action="store_true",
         help="Also measure each scoring term's contribution on real repositories",
     )
     args = parser.parse_args()
 
-    results = run(refresh=args.refresh, suite=args.suite)
+    results = run(refresh=args.refresh, suite=args.suite, embeddings=args.embeddings)
+    variant = "-embeddings" if args.embeddings else ""
     output_path = Path(
-        args.output or f"benchmarks/real-world-{args.suite}-results.json"
+        args.output or f"benchmarks/real-world-{args.suite}{variant}-results.json"
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")

@@ -2,8 +2,10 @@
 services/rag_service.py
 =========================
 Retrieval-Augmented Generation for repository Q&A.
-Retrieval uses local FAISS embeddings when available and keyword search otherwise.
-Tier 2: Local FAISS embeddings (optional, if sentence-transformers installed).
+
+Lexical identifier-aware search always runs. When RAG_USE_EMBEDDINGS is on and
+sentence-transformers is installed, a local embedding ranker runs alongside it
+and the two orderings are fused by reciprocal rank.
 """
 
 from __future__ import annotations
@@ -109,6 +111,11 @@ DOCUMENT_EXTENSIONS = frozenset({".md", ".rst", ".txt"})
 DOCUMENT_QUERY_TERMS = frozenset({"docs", "documentation", "install", "readme", "setup"})
 MAX_CHUNK_CHARS = config.RAG_CHUNK_SIZE * 4
 
+# Reciprocal rank fusion constant. 60 is the value from the original paper and
+# is not tuned here, deliberately: fitting it would reintroduce the free
+# parameter that fusion exists to remove.
+RRF_K = 60
+
 # Named so the ablation harness can zero individual terms and report the effect.
 SCORING_WEIGHTS = {
     "coverage": 0.52,
@@ -126,24 +133,33 @@ LOW_VALUE_PATH_PARTS = (
     "package-lock",
 )
 
-# Try to import local embedding dependencies
-if config.RAG_USE_EMBEDDINGS:
+# Optional local embedding dependencies.
+#
+# A repository is capped at MAX_INDEX_FILES, which is a few thousand chunks at
+# most, so similarity is one matrix multiply against a 384-column matrix. That
+# needs numpy and nothing else: an approximate-nearest-neighbour index only
+# earns its keep at a scale this application never reaches, and requiring one
+# previously left the whole semantic path switched off wherever it would not
+# install.
+# numpy is imported on availability rather than on the config flag: the vector
+# code paths reference it, and gating the import on configuration meant enabling
+# embeddings at runtime raised NameError inside a broad except and degraded
+# silently to lexical search.
+try:
+    import numpy as np
+
+    NUMPY_AVAILABLE = True
+except ImportError:  # pragma: no cover - numpy ships with the embedding extra
+    NUMPY_AVAILABLE = False
+
+# sentence-transformers pulls in torch, so it stays behind the flag.
+if config.RAG_USE_EMBEDDINGS and NUMPY_AVAILABLE:
     try:
-        import numpy as np
         from sentence_transformers import SentenceTransformer
 
         LOCAL_EMBEDDINGS_AVAILABLE = True
     except ImportError:
         LOCAL_EMBEDDINGS_AVAILABLE = False
-
-FAISS_AVAILABLE = False
-if config.RAG_USE_EMBEDDINGS:
-    try:
-        import faiss
-
-        FAISS_AVAILABLE = True
-    except ImportError:
-        FAISS_AVAILABLE = False
 
 
 @dataclass
@@ -170,12 +186,12 @@ class RAGService:
 
     def __init__(self):
         self._model = None
-        self._index = None
+        self._vectors = None
         self._chunks: list[CodeChunk] = []
         self._chunk_terms: list[Counter[str]] = []
         self._path_terms: list[set[str]] = []
         self._document_frequency: Counter[str] = Counter()
-        self._use_local = LOCAL_EMBEDDINGS_AVAILABLE and FAISS_AVAILABLE
+        self._use_local = LOCAL_EMBEDDINGS_AVAILABLE
 
     def index_repository(self, analysis_id: str, file_contents: dict[str, str]) -> int:
         """Chunk and index all repository files. Returns chunk count."""
@@ -191,9 +207,9 @@ class RAGService:
 
         if self._use_local:
             try:
-                self._build_faiss_index()
+                self._build_embeddings()
             except Exception as exc:
-                logger.warning("FAISS indexing failed, falling back to keyword search: %s", exc)
+                logger.warning("Embedding failed, falling back to keyword search: %s", exc)
                 self._use_local = False
 
         logger.info("Indexed %d chunks from %d files", len(self._chunks), len(file_contents))
@@ -204,8 +220,11 @@ class RAGService:
         """Serialize index and chunks to disk."""
         try:
             os.makedirs(config.INDEX_CACHE_DIR, exist_ok=True)
-            if self._index and self._use_local:
-                faiss.write_index(self._index, os.path.join(config.INDEX_CACHE_DIR, f"{analysis_id}.index"))
+            if self._vectors is not None and self._use_local:
+                np.save(
+                    os.path.join(config.INDEX_CACHE_DIR, f"{analysis_id}_vectors.npy"),
+                    self._vectors,
+                )
             if self._chunks:
                 with open(os.path.join(config.INDEX_CACHE_DIR, f"{analysis_id}_chunks.json"), "w") as f:
                     json.dump([c.__dict__ for c in self._chunks], f)
@@ -214,10 +233,10 @@ class RAGService:
 
     def load_index(self, analysis_id: str) -> bool:
         """Load index and chunks from disk."""
-        idx_path = os.path.join(config.INDEX_CACHE_DIR, f"{analysis_id}.index")
+        idx_path = os.path.join(config.INDEX_CACHE_DIR, f"{analysis_id}_vectors.npy")
         chk_path = os.path.join(config.INDEX_CACHE_DIR, f"{analysis_id}_chunks.json")
         self._chunks = []
-        self._index = None
+        self._vectors = None
         if os.path.exists(chk_path):
             try:
                 with open(chk_path) as file_handle:
@@ -228,12 +247,18 @@ class RAGService:
                 return False
         if self._use_local and os.path.exists(idx_path):
             try:
-                self._index = faiss.read_index(idx_path)
-                if not self._model:
-                    self._model = SentenceTransformer("all-MiniLM-L6-v2")
+                vectors = np.load(idx_path)
+                # A stale vector file against freshly chunked text would score
+                # every chunk against the wrong row, so refuse it outright.
+                if len(vectors) == len(self._chunks):
+                    self._vectors = vectors
+                    if not self._model:
+                        self._model = SentenceTransformer(config.EMBEDDING_MODEL)
+                else:
+                    logger.warning("Vector cache does not match chunks; ignoring it")
             except Exception as exc:
-                logger.error("Failed to load FAISS index: %s", exc)
-                self._index = None
+                logger.error("Failed to load embeddings: %s", exc)
+                self._vectors = None
         return bool(self._chunks)
 
     def search(self, query: str, top_k: int | None = None) -> list[SearchResult]:
@@ -246,8 +271,8 @@ class RAGService:
         if len(self._chunk_terms) != len(self._chunks):
             self._prepare_lexical_index()
 
-        if self._use_local and self._index is not None:
-            return self._search_faiss(query, k)
+        if self._use_local and self._vectors is not None:
+            return self._search_hybrid(query, k)
 
         return self._search_keyword(query, k)
 
@@ -648,51 +673,73 @@ class RAGService:
                 return True
         return False
 
-    def _build_faiss_index(self):
-        """Build FAISS index from chunks using sentence-transformers."""
+    def _build_embeddings(self) -> None:
+        """Encode every chunk once, normalised so similarity is a dot product."""
         if not self._model:
-            self._model = SentenceTransformer("all-MiniLM-L6-v2")
+            self._model = SentenceTransformer(config.EMBEDDING_MODEL)
 
-        texts = [f"{c.file_path}: {c.content[:500]}" for c in self._chunks]
-        embeddings = self._model.encode(texts, show_progress_bar=False)
-        embeddings = np.array(embeddings, dtype="float32")
+        texts = [f"{chunk.file_path}: {chunk.content[:1000]}" for chunk in self._chunks]
+        self._vectors = self._model.encode(
+            texts,
+            batch_size=64,
+            show_progress_bar=False,
+            normalize_embeddings=True,
+        ).astype("float32")
 
-        dim = embeddings.shape[1]
-        self._index = faiss.IndexFlatIP(dim)
-        faiss.normalize_L2(embeddings)
-        self._index.add(embeddings)
+    def _semantic_ranking(self, query: str, limit: int) -> list[int]:
+        """Return chunk indices ordered by cosine similarity to the query."""
+        query_vector = self._model.encode(
+            [query], show_progress_bar=False, normalize_embeddings=True
+        ).astype("float32")[0]
+        similarity = self._vectors @ query_vector
+        count = min(limit, len(similarity))
+        top = np.argpartition(-similarity, count - 1)[:count]
+        return [int(index) for index in top[np.argsort(-similarity[top])]]
 
-    def _search_faiss(self, query: str, top_k: int) -> list[SearchResult]:
-        """Search using FAISS vector similarity."""
-        if not self._model or not self._index:
+    def _search_hybrid(self, query: str, top_k: int) -> list[SearchResult]:
+        """Fuse the lexical and semantic rankings by reciprocal rank.
+
+        The two scores are not on a comparable scale, so blending them needs a
+        weight, and any weight would have to be fitted to whichever questions
+        were used to choose it. Reciprocal rank fusion consumes only the
+        orderings, which removes that free parameter entirely.
+
+        Lexical retrieval remains a full ranker rather than a rescorer of
+        semantic candidates, so an exact identifier match still surfaces even
+        when the embedding model finds the question unlike the code.
+        """
+        if not self._model or self._vectors is None:
             return self._search_keyword(query, top_k)
 
-        query_embedding = self._model.encode([query])
-        query_embedding = np.array(query_embedding, dtype="float32")
-        faiss.normalize_L2(query_embedding)
-
-        candidate_count = min(max(top_k * 3, top_k), len(self._chunks))
-        scores, indices = self._index.search(query_embedding, candidate_count)
         query_terms = set(self.tokenize(query))
-        results: list[SearchResult] = []
-        for score, idx in zip(scores[0], indices[0], strict=True):
-            if idx < 0 or idx >= len(self._chunks):
-                continue
-            chunk = self._chunks[idx]
-            semantic_score = max(0.0, min(1.0, float(score)))
-            lexical_score, matched_terms, term_coverage = self._lexical_evidence(
-                query_terms, int(idx)
-            )
-            final_score = round(0.7 * semantic_score + 0.3 * lexical_score, 4)
+        lexical: dict[int, tuple[float, tuple[str, ...], float]] = {}
+        for index in range(len(self._chunks)):
+            score, matched_terms, term_coverage = self._lexical_evidence(query_terms, index)
+            if score >= 0.24:
+                lexical[index] = (score, matched_terms, term_coverage)
 
-            if final_score >= 0.25:
-                results.append(
-                    SearchResult(
-                        chunk=chunk,
-                        score=final_score,
-                        relevance=self._relevance_label(final_score),
-                        matched_terms=matched_terms,
-                        term_coverage=term_coverage,
-                    )
+        lexical_ranking = sorted(lexical, key=lambda index: -lexical[index][0])
+        depth = max(top_k * 10, 50)
+        semantic_ranking = self._semantic_ranking(query, depth)
+
+        fused: dict[int, float] = {}
+        for ranking in (lexical_ranking[:depth], semantic_ranking):
+            for rank, index in enumerate(ranking, start=1):
+                fused[index] = fused.get(index, 0.0) + 1.0 / (RRF_K + rank)
+
+        results = []
+        for index, fusion_score in fused.items():
+            score, matched_terms, term_coverage = lexical.get(index, (0.0, (), 0.0))
+            results.append(
+                SearchResult(
+                    chunk=self._chunks[index],
+                    # Rescaled so the fused ordering survives the relative floor
+                    # in _rank_and_prune, which is expressed against the best
+                    # result rather than against an absolute threshold.
+                    score=round(fusion_score * RRF_K, 4),
+                    relevance=self._relevance_label(max(score, min(1.0, fusion_score * RRF_K))),
+                    matched_terms=matched_terms,
+                    term_coverage=term_coverage,
                 )
+            )
         return self._rank_and_prune(results, top_k)

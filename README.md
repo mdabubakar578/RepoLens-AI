@@ -169,11 +169,12 @@ python -m coverage report --fail-under=70
 python -m benchmarks.runner --check          # offline regression gate
 python -m benchmarks.real_world --suite dev --ablation   # 150 queries, six real repositories
 python -m benchmarks.real_world --suite heldout          # 138 queries, six different ones
+python -m benchmarks.real_world --suite heldout --embeddings   # with the semantic ranker
 ```
 
-The recorded suite has 120 passing tests, 76% whole-project coverage, and 89% combined coverage for the five core agent modules.
+The recorded suite has 128 passing tests, 77% whole-project coverage, and 93% combined coverage for the five core agent modules.
 
-Retrieval is measured on twelve real open-source repositories, split into a `dev` suite used for diagnosis and a `heldout` suite never used to decide a change. Queries are the projects' own docstrings, with every docstring stripped from the indexed text first. On the held-out suite RepoLens reaches Recall@5 0.674 and MRR 0.517, against a naive token-overlap baseline's 0.493 and 0.283; on the smaller dev repositories the baseline still ties on recall (0.593 vs 0.600) because 51-file corpora leave it little to get wrong. The stated target is Recall@5 0.80, so this is short of the bar and the gap is attributed in EVALUATION.md.
+Retrieval is measured on twelve real open-source repositories, split into a `dev` suite used for diagnosis and a `heldout` suite never used to decide a change. Queries are the projects' own docstrings, with every docstring stripped from the indexed text first. Against a stated target of Recall@5 0.80, the held-out suite reaches **0.826 with the optional semantic ranker enabled** (MRR 0.689) and 0.674 without it, against a naive token-overlap baseline's 0.493 and 0.283. The semantic ranker needs torch, which does not fit the hosted free tier, so the live deployment runs the lexical configuration — see EVALUATION.md, which reports both and says where each applies.
 
 ## Technical Notes
 

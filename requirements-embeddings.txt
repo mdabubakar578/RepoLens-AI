@@ -1,3 +1,6 @@
 -r requirements.txt
-faiss-cpu>=1.7,<2
+# Similarity runs as a numpy matrix multiply over at most a few thousand
+# chunks, so no approximate-nearest-neighbour index is needed. faiss-cpu was
+# previously required here and, being hard to install, kept the semantic path
+# switched off on most machines.
 sentence-transformers>=3,<6

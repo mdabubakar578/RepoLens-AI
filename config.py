@@ -55,6 +55,9 @@ ENABLE_GIT_CLONE_FALLBACK = True
 # ─── RAG Settings ────────────────────────────────────────────────────────────
 RAG_ENABLED = os.environ.get("RAG_ENABLED", "true").lower() == "true"
 RAG_USE_EMBEDDINGS = os.environ.get("RAG_USE_EMBEDDINGS", "false").lower() == "true"
+# Small enough to run on a modest host; 384 dimensions over a few thousand
+# chunks is a millisecond-scale matrix multiply.
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 RAG_CHUNK_SIZE = int(os.environ.get("RAG_CHUNK_SIZE", "800"))
 RAG_CHUNK_OVERLAP = int(os.environ.get("RAG_CHUNK_OVERLAP", "100"))
 RAG_TOP_K = int(os.environ.get("RAG_TOP_K", "5"))

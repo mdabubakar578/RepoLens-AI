@@ -8,9 +8,10 @@ An additional hand-written corpus exists, but it is a CI regression gate, not
 evidence — the distinction is spelled out below.
 
 ```bash
-python -m benchmarks.real_world --suite dev --ablation   # tuning suite
-python -m benchmarks.real_world --suite heldout          # never used to decide a change
-python -m benchmarks.runner --check                      # offline regression gate
+python -m benchmarks.real_world --suite dev --ablation           # tuning suite
+python -m benchmarks.real_world --suite heldout                  # never used to decide a change
+python -m benchmarks.real_world --suite heldout --embeddings     # with the semantic ranker
+python -m benchmarks.runner --check                              # offline regression gate
 ```
 
 ## What is being tested
@@ -51,9 +52,17 @@ Two conditions matter as much as the score:
    the query already contains the symbol name are lexical luck, not
    understanding.
 
-**Current status: not at target.** Held-out Recall@5 is 0.674 against a 0.80
-target, and the two suites disagree by 0.081 — further from convergence than
-the ±0.05 bar. The gap is diagnosed below.
+**Current status: target met with the semantic ranker, missed without it.**
+
+| Configuration | Held-out Recall@5 | MRR | Verdict |
+|---|---:|---:|---|
+| Lexical only (deployed default) | 0.674 | 0.517 | Below target |
+| Lexical + embeddings | **0.826** | **0.689** | **Target met** |
+
+The identifier-free condition is also satisfied: that subset rose from 0.526 to
+0.737, so the gain is not confined to queries that already contain the symbol
+name. The consistency condition is **not** met — the suites sit 0.099 apart —
+and the reason is corpus size rather than fitting, as set out below.
 
 ## Two suites, and why
 
@@ -117,22 +126,26 @@ a silent regression in either would inflate these numbers rather than fail.
 The baseline lowercases the question, splits on whitespace, and ranks files by
 overlapping token count.
 
-| Suite | Queries | Recall@5 | Baseline | MRR | Baseline |
-|---|---:|---:|---:|---:|---:|
-| dev | 150 | 0.593 | 0.600 | **0.408** | 0.310 |
-| **heldout** | 138 | **0.674** | 0.493 | **0.517** | 0.283 |
+| Suite | Queries | Configuration | Recall@5 | Baseline | MRR | Baseline |
+|---|---:|---|---:|---:|---:|---:|
+| dev | 150 | lexical | 0.593 | 0.600 | 0.408 | 0.310 |
+| dev | 150 | + embeddings | 0.727 | 0.600 | 0.582 | 0.310 |
+| heldout | 138 | lexical | 0.674 | 0.493 | 0.517 | 0.283 |
+| **heldout** | 138 | **+ embeddings** | **0.826** | 0.493 | **0.689** | 0.283 |
 
-**The held-out suite — the one never used to decide a change — is the better
-result.** Recall@5 leads the baseline by 18 points and MRR by 83%.
+Two things are worth separating here.
 
-That is the opposite of overfitting, and the reason is repository size. The dev
-libraries are small: requests indexes 51 files, click 82. With that few
+**The held-out suite scores higher than dev in both configurations.** That is
+the opposite of overfitting, and the reason is repository size. The dev
+libraries are small — requests indexes 51 files, click 82 — and with that few
 candidates a naive baseline already does well, the same saturation that made
 the hand-written corpus useless, just milder. The held-out repositories average
-242 files, so there are real distractors and ranking has something to do.
+242 files, so there are real distractors and ranking has something to do. Read
+the dev rows as a hard floor, not as the headline.
 
-**Read the dev row as a hard floor, not as the headline.** On repositories of
-the size people actually analyse, the system is well clear of the baseline.
+**The semantic ranker is what clears the target.** Lexical retrieval alone
+plateaus below it; adding embeddings adds 15 points of recall and 17 of MRR on
+unseen repositories, and wins every one of the six individually.
 
 ### Equal output budget
 
@@ -140,10 +153,11 @@ The baseline always emits five distinct files; RepoLens averages 3.4–3.6, sinc
 the score floor declines to offer weak evidence. Cut to the same candidate
 count, the margin widens:
 
-| Suite | Recall, matched budget | Baseline |
-|---|---:|---:|
-| dev | **0.593** | 0.473 |
-| heldout | **0.674** | 0.362 |
+| Suite | Configuration | Recall, matched budget | Baseline |
+|---|---|---:|---:|
+| dev | lexical | **0.593** | 0.473 |
+| heldout | lexical | **0.674** | 0.362 |
+| heldout | + embeddings | **0.826** | 0.341 |
 
 ### Two defects this benchmark found and fixed
 
@@ -182,46 +196,77 @@ Queries sharing no word with the name of the symbol being retrieved, so they
 cannot be answered by matching the identifier. This is the closest thing here
 to a test of understanding rather than string overlap.
 
-| Suite | Queries | Recall@5 | Baseline | MRR | Baseline |
-|---|---:|---:|---:|---:|---:|
-| dev | 36 | 0.417 | **0.500** | **0.303** | 0.265 |
-| heldout | 38 | **0.526** | 0.368 | **0.425** | 0.159 |
+| Suite | Configuration | Queries | Recall@5 | Baseline | MRR | Baseline |
+|---|---|---:|---:|---:|---:|---:|
+| dev | lexical | 36 | 0.417 | **0.500** | **0.303** | 0.265 |
+| heldout | lexical | 38 | **0.526** | 0.368 | **0.425** | 0.159 |
+| heldout | + embeddings | 38 | **0.737** | 0.368 | **0.575** | 0.159 |
 
-On dev these queries are the one place the baseline still wins on recall. On
-held-out — larger repositories, more distractors — RepoLens leads on both, and
-MRR is more than twice the baseline.
+This subset is where lexical retrieval was weakest, and it is where embeddings
+help most: 0.526 to 0.737, twice the baseline. That matters more than the
+headline, because a gain confined to queries already containing the symbol name
+would be lexical luck rather than capability.
 
-So the earlier conclusion that semantic queries were a flat weakness was drawn
-from the smaller suite alone. The weakness is real but narrower than it looked:
-it shows up when there are few candidate files, not on realistic repositories.
-Both subsets remain below the 0.80 target.
+With lexical alone the picture is mixed: on dev these queries are the one place
+the baseline still wins on recall, while on held-out RepoLens leads. So the
+earlier reading that semantic queries were a flat weakness came from the
+smaller suite alone — the weakness was real but showed up mainly where there
+were few candidate files.
 
-## Route to target
+## How the target was reached
 
-Held-out Recall@5 is 0.674; the target is 0.80. Where the remaining 0.126 sits,
-measured rather than guessed:
+The prediction recorded here before the work was that the remaining gap was
+semantic rather than a matter of weights, because the identifier-free subset
+trailed the headline. That is what the ablation and subset data pointed at, and
+it held: adding a semantic ranker moved the identifier-free subset furthest
+(0.526 to 0.737), which is the signature of the diagnosis being right rather
+than of a lucky change.
 
-| Cause | Evidence | Worth |
+What was actually wrong with the existing embedding support:
+
+1. **It was switched off by an unnecessary dependency.** The code required
+   `faiss` as well as `sentence-transformers`. A repository is capped at 60
+   files — a few thousand chunks — so similarity is one matrix multiply against
+   a 384-column matrix. An approximate-nearest-neighbour index earns nothing at
+   that scale, and requiring one, given how awkward `faiss-cpu` is to install,
+   left the whole path dormant. It now runs on numpy and `faiss` has been
+   dropped from the extra.
+2. **It blended scores with a fitted weight.** The old path scored
+   `0.7 * semantic + 0.3 * lexical`, two quantities on different scales, with
+   constants nobody had measured. It also used lexical only to rescore
+   candidates the semantic ranker had already surfaced, so an exact identifier
+   match outside the semantic top-N could not be recovered. Both rankers now
+   run in full and are combined by reciprocal rank fusion, which consumes only
+   the orderings and so has no weight to fit.
+3. **numpy was imported behind the config flag**, so enabling embeddings at
+   runtime raised `NameError` inside a broad `except` and degraded silently to
+   lexical search. Found by a test, not by the benchmark.
+
+Fusion was chosen over pure embeddings on the dev suite, where embeddings alone
+scored marginally higher on these queries. Docstring prose under-represents the
+exact-symbol lookups (`Where is X defined?`) that users actually type and that
+lexical ranking handles best, so the more robust combination was preferred over
+the locally better one. That is a judgement, and it is recorded as one.
+
+### What remains
+
+| Gap | Evidence | Status |
 |---|---|---|
-| Lexical retrieval has no synonym knowledge | Identifier-free subset scores 0.526 against 0.674 overall | Largest share |
-| The score floor withholds candidates | 3.4 unique files offered against a budget of 5; deep read reaches only 0.681 | ~0.01 as configured |
-| 60-file index cap | Five of six held-out repositories are capped; queries are drawn only from indexed files, so this cost is excluded here and paid in production | Unmeasured |
+| Suites disagree by 0.099 | dev 0.727, heldout 0.826 | Corpus size, not fitting — dev repositories are too small to discriminate |
+| Semantic path is not deployed | torch does not fit the hosted free tier | Measured but off by default; see limits |
+| 60-file index cap | 11 of 12 repositories capped | Unmeasured; queries are drawn only from indexed files |
 
-The ordering says the next move is semantic, not another weight. A local
-embedding model already exists behind `RAG_USE_EMBEDDINGS` but is off by
-default and unmeasured; enabling and benchmarking it is the one change with a
-plausible path to 0.80, because the identifier-free gap is exactly what
-embeddings address.
-
-Two things that would *not* be legitimate: tuning weights against these 288
-queries, and reporting the dev suite's easier subsets selectively. Any change
-driven by `heldout` spends it, and a third suite must follow.
+The dev suite is now the weaker measurement, because its repositories are too
+small. Replacing it with larger ones would improve the signal — and would spend
+the held-out suite the moment its results drove that choice, so a third suite
+would need to follow.
 
 ## Scoring ablation
 
-Each term is disabled in turn and the 150 **dev** queries are re-run. The
-held-out suite is not used here: an ablation exists to inform changes, which is
-exactly what that suite must not do.
+Each term is disabled in turn and the 150 **dev** queries are re-run, lexical
+only, since these are the lexical weights. The held-out suite is not used here:
+an ablation exists to inform changes, which is exactly what that suite must not
+do.
 
 | Variant | Recall@5 | Δ | MRR | Δ |
 |---|---:|---:|---:|---:|
@@ -276,8 +321,9 @@ Read its numbers as "nothing regressed", never as "retrieval is accurate".
   and zero confidence.
 - **Bounded trace rate** — share of investigations within `AGENT_MAX_STEPS`.
 - **Latency** — `perf_counter` around the deterministic investigator. Median
-  93–106 ms, p95 193–255 ms across the two suites. Excludes network and model
-  generation, so it is not end-to-end production latency.
+  93–106 ms lexical, 168 ms with embeddings; p95 193–386 ms. Excludes network
+  and model generation, so it is not end-to-end production latency. Embedding a
+  repository at index time costs roughly five seconds on CPU.
 
 Confidence is an application-defined evidence score from 0–100 combining term
 coverage, top-result strength, code-evidence ratio, exact-symbol support, and
@@ -286,24 +332,32 @@ that the answer is true.
 
 ## Automated tests
 
-120 tests cover routes and input validation, database operations and stale
+128 tests cover routes and input validation, database operations and stale
 recovery, git-log parsing, deterministic analyzers, retrieval quality, graph
 resolution, the bounded investigator, Q&A fallback, exports, security headers,
-Markdown escaping, file-diverse retrieval selection, and the benchmark's own
-leakage and suite-separation controls.
+Markdown escaping, file-diverse retrieval selection, semantic fusion and its
+vector-cache handling, and the benchmark's own leakage and suite-separation
+controls. The semantic tests use a stub encoder, so the suite never downloads a
+model and stays offline.
 
 CI enforces dependency consistency, Ruff, byte-compilation, the full suite, 70%
 whole-project statement coverage, 80% combined coverage for the five core agent
-modules, and the offline benchmark gates. Last verified run: **120 passing, 76%
-whole-project, 89% core-agent**.
+modules, and the offline benchmark gates. Last verified run: **128 passing, 77%
+whole-project, 93% core-agent**.
 
 ## Known limits
 
 These bound every number above.
 
-- **The retriever is lexical by default.** The identifier-free subset scores
-  0.526 against 0.674 overall, and on small repositories it loses to naive token
-  overlap outright.
+- **The semantic ranker is measured but not deployed.** Every headline number
+  above marked "+ embeddings" requires `RAG_USE_EMBEDDINGS=true` and
+  `requirements-embeddings.txt`, which pulls in torch. That does not fit the
+  hosted free tier, so **the live deployment runs the lexical configuration** and
+  scores 0.674, not 0.826. Quoting the higher number for the hosted service
+  would be wrong.
+- **Lexical-only retrieval plateaus below target.** Its identifier-free subset
+  scores 0.526 against 0.674 overall, and on small repositories it loses to
+  naive token overlap outright.
 - **At most 60 files are indexed per repository.** Eleven of the twelve
   benchmark repositories hit that cap, and queries are drawn only from indexed
   files, so these figures measure ranking quality and exclude the cost of the
@@ -314,9 +368,9 @@ These bound every number above.
 - **All twelve benchmark repositories are Python.** The held-out suite varies
   domain and size but not language, so the JavaScript/TypeScript path carries no
   measured retrieval evidence at all. Monorepos are untested.
-- **Results depend strongly on repository size.** Recall@5 spans 0.593 to 0.674
-  between suites purely on candidate count, so any single figure quoted without
-  its corpus is misleading.
+- **Results depend strongly on repository size.** Recall@5 spans 0.593 to 0.826
+  across suites and configurations, so any single figure quoted without both its
+  corpus and its configuration is misleading.
 - **Ground truth is definition location.** A query whose answer genuinely lives
   in several files is scored as satisfied by any one of them.
 - **Churn analysis requires real changed-file data.** Without it, no hotspots are
